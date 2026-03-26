@@ -148,6 +148,14 @@ class AnnotatorSession:
         if self.images:
             self._load_image(0)
 
+    @staticmethod
+    def _label_color_bgr(label_name: str) -> tuple[int, int, int]:
+        # Stable per-class color: same class name -> same color across frames/sessions.
+        h = sum(label_name.encode("utf-8")) % 360
+        hsv = np.uint8([[[h / 2, 180, 255]]])  # OpenCV hue range: 0..179
+        bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)[0, 0]
+        return int(bgr[0]), int(bgr[1]), int(bgr[2])
+
     @property
     def current_image(self) -> Path:
         return self.images[self.current_idx]
@@ -483,10 +491,12 @@ class AnnotatorSession:
                 raise RuntimeError("Frame encode failed")
             return enc.tobytes()
         view = self.base_bgr.copy()
-        for _, m, _ in self._instances():
+        for label_name, m, _ in self._instances():
             color = np.zeros_like(view)
-            color[:, :, 1] = 120
-            color[:, :, 2] = 255
+            cb, cg, cr = self._label_color_bgr(label_name)
+            color[:, :, 0] = cb
+            color[:, :, 1] = cg
+            color[:, :, 2] = cr
             mm = m.astype(bool)
             view[mm] = (0.74 * view[mm] + 0.26 * color[mm]).astype(np.uint8)
         if self.current_mask is not None:
@@ -537,7 +547,12 @@ class AnnotatorSession:
         h, w = self.service.image_rgb.shape[:2]
         pf = self.prefetch.status()
         inst_detail = [
-            {"index": i, "label": label_name, "score": round(float(score), 4)}
+            {
+                "index": i,
+                "label": label_name,
+                "score": round(float(score), 4),
+                "color_bgr": list(self._label_color_bgr(label_name)),
+            }
             for i, (label_name, _, score) in enumerate(self._instances())
         ]
         return {

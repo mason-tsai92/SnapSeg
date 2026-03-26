@@ -346,9 +346,16 @@ function renderInstanceList() {
     const idx = Number(it.index) + 1;
     const label = String(it.label || 'object');
     const score = Number(it.score || 0).toFixed(4);
+    let dot = '#ff875f';
+    if (Array.isArray(it.color_bgr) && it.color_bgr.length === 3) {
+      const b = Number(it.color_bgr[0] || 0);
+      const g = Number(it.color_bgr[1] || 0);
+      const r = Number(it.color_bgr[2] || 0);
+      dot = `rgb(${r},${g},${b})`;
+    }
     return (
       `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0;">` +
-      `<span>#${idx} ${label} (score ${score})</span>` +
+      `<span style="display:flex;align-items:center;gap:8px;"><span style="width:10px;height:10px;border-radius:50%;background:${dot};display:inline-block;flex:none;"></span>#${idx} ${label} (score ${score})</span>` +
       `<button class="btn warn" style="width:84px;margin:0;padding:6px 8px;" onclick="deleteInstance(${Number(it.index)})">Delete</button>` +
       `</div>`
     );
