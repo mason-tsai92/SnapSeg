@@ -38,6 +38,15 @@
       margin-bottom:10px;
       background:#162331;
     }
+    .progressGrid { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
+    .metric { border:1px solid #304456; border-radius:8px; padding:8px; background:#13202d; }
+    .metric .mk { color:#9fb2c8; font-size:11px; }
+    .metric .mv { color:#e6eef7; font-size:18px; font-weight:700; margin-top:2px; }
+    .visitBar { margin-top:8px; height:8px; background:#0f1a24; border:1px solid #304456; border-radius:999px; overflow:hidden; }
+    .visitFill { height:100%; width:0%; background:linear-gradient(90deg,#4fbf84,#58d0ae); }
+    .flagRow { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:4px; min-width:0; }
+    .flagName { min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .flagJump { width:74px; margin:0; padding:4px 8px; flex:none; }
     .statusMsg { font-size:12px; color:#ffd27a; margin-bottom:8px; white-space:pre-line; }
     .statusGrid { display:grid; grid-template-columns: 118px 1fr; gap:6px 10px; align-items:start; }
     .k { color:#9fb2c8; font-size:12px; }
@@ -118,22 +127,23 @@
         <button class="btn primary" onclick="applyConfig()">Load Source</button>
       </div>
       <div class="section">
-        <button class="btn primary" onclick="act('save')">S Save Current Image</button>
-        <button class="btn" onclick="act('confirm')">Enter Confirm Current Instance</button>
+        <button class="btn primary" onclick="act('save')">Save Current Image (S)</button>
+        <button class="btn" onclick="act('confirm')">Confirm Current Instance (Enter)</button>
         <div class="row">
-          <button class="btn" onclick="act('prev')">Previous</button>
-          <button class="btn" onclick="act('next')">Next</button>
+          <button class="btn" onclick="act('prev')">Previous (Left)</button>
+          <button class="btn" onclick="act('next')">Next (Space/Right)</button>
         </div>
         <div class="row">
           <input id="gotoIdx" type="number" min="1" step="1" style="flex:1;padding:10px;border-radius:10px;background:#182430;color:#e6eef7;border:1px solid #33485f;" placeholder="Image index">
           <button class="btn" style="width:120px" onclick="gotoImage()">Go</button>
         </div>
         <div class="row">
-          <button class="btn" onclick="act('undo')">U Undo Point</button>
-          <button class="btn warn" onclick="act('reset')">R Reset Current</button>
+          <button class="btn" onclick="act('undo')">Undo Point (U)</button>
+          <button class="btn warn" onclick="act('reset')">Reset Current (R)</button>
         </div>
-        <button class="btn warn" onclick="act('undo_instance')">Backspace Undo Last Instance</button>
-        <button id="boxModeBtn" class="btn" onclick="toggleBoxMode()">B Box Mode: Off</button>
+        <button class="btn" onclick="act('toggle_flag')">Toggle Flag (F)</button>
+        <button class="btn warn" onclick="act('undo_instance')">Undo Last Instance (Backspace)</button>
+        <button id="boxModeBtn" class="btn" onclick="toggleBoxMode()">Box Mode (B): Off</button>
       </div>
       <div class="section">
         <div style="margin-top:2px;margin-bottom:6px;">Polygon Smoothing (epsilon)</div>
@@ -146,17 +156,17 @@
       <div class="section">
         <div style="margin-top:2px;margin-bottom:6px;">Zoom</div>
         <div class="row">
-          <button class="btn" onclick="zoomIn()">Zoom +</button>
-          <button class="btn" onclick="zoomOut()">Zoom -</button>
+          <button class="btn" onclick="zoomIn()">Zoom In (+)</button>
+          <button class="btn" onclick="zoomOut()">Zoom Out (-)</button>
         </div>
-        <button class="btn" onclick="zoomReset()">Reset View</button>
+        <button class="btn" onclick="zoomReset()">Reset View (0)</button>
       </div>
       <div class="section">
         <div style="margin-top:2px;margin-bottom:6px;">Class</div>
         <select id="classSel" onchange="setClass(this.value)"></select>
         <div class="row">
-          <button class="btn" onclick="act('class_prev')">Prev Class</button>
-          <button class="btn" onclick="act('class_next')">Next Class</button>
+          <button class="btn" onclick="act('class_prev')">Prev Class (P)</button>
+          <button class="btn" onclick="act('class_next')">Next Class (N)</button>
         </div>
       </div>
     </div>
@@ -175,15 +185,23 @@
       <div class="infoCard">
         <div id="instanceList" class="status"></div>
       </div>
-      <div class="inspectorTitle">Hotkeys</div>
+      <div class="inspectorTitle">Progress</div>
+      <div class="infoCard">
+        <div class="progressGrid">
+          <div class="metric"><div class="mk">Visited</div><div id="pVisited" class="mv">0</div></div>
+          <div class="metric"><div class="mk">Labeled</div><div id="pLabeled" class="mv">0</div></div>
+          <div class="metric"><div class="mk">Flagged</div><div id="pFlagged" class="mv">0</div></div>
+          <div class="metric"><div class="mk">Instances</div><div id="pInstances" class="mv">0</div></div>
+        </div>
+        <div class="status" id="pSummary" style="margin-top:8px;"></div>
+        <div class="visitBar"><div id="pVisitFill" class="visitFill"></div></div>
+        <div id="pFlagList" class="status" style="margin-top:10px;"></div>
+      </div>
+      <div class="inspectorTitle">Shortcuts</div>
       <div class="infoCard">
         <div class="status">
-          Left click: positive point (+)<br/>
-          Right click: negative point (-)<br/>
-          Box mode: left drag to draw box prompt<br/>
-          Mouse wheel: zoom in/out<br/>
-          Shift + left drag: pan view<br/>
-          Hotkeys: S / Enter / Space / Left / Right / U / R / Backspace / B / N / P / 1-9 / 0 (reset zoom)
+          Core: Enter(confirm), S(save), Space(next), B(box mode), F(flag), Backspace(undo instance)<br/>
+          Click: Left(+), Right(-), Wheel(zoom), Shift+Drag(pan)
         </div>
       </div>
     </aside>
@@ -201,9 +219,17 @@ const sourceEl = document.getElementById('sourcePath');
 const classInputEl = document.getElementById('classInput');
 const instanceListEl = document.getElementById('instanceList');
 const boxModeBtn = document.getElementById('boxModeBtn');
+const pVisitedEl = document.getElementById('pVisited');
+const pLabeledEl = document.getElementById('pLabeled');
+const pFlaggedEl = document.getElementById('pFlagged');
+const pInstancesEl = document.getElementById('pInstances');
+const pSummaryEl = document.getElementById('pSummary');
+const pVisitFillEl = document.getElementById('pVisitFill');
+const pFlagListEl = document.getElementById('pFlagList');
 const loadingOverlay = document.getElementById('loadingOverlay');
 const loadingText = document.getElementById('loadingText');
 let state = null;
+let progress = null;
 let frameImg = new Image();
 let hasFrame = false;
 let currentImageName = "";
@@ -275,7 +301,7 @@ function zoomOut() {
 }
 
 function updateBoxModeButton() {
-  boxModeBtn.textContent = `B Box Mode: ${boxMode ? 'On' : 'Off'}`;
+  boxModeBtn.textContent = `Box Mode (B): ${boxMode ? 'On' : 'Off'}`;
   boxModeBtn.style.borderColor = boxMode ? '#2ea162' : '#3a4d62';
 }
 
@@ -363,6 +389,43 @@ function renderInstanceList() {
   instanceListEl.innerHTML = rows.join('');
 }
 
+async function getProgress() {
+  const res = await fetch('/api/progress');
+  progress = await res.json();
+  const visited = Number(progress.visited_count || 0);
+  const labeled = Number(progress.labeled_count || 0);
+  const flagged = Number(progress.flagged_count || 0);
+  const total = Number(progress.total_images || 0);
+  const totalInstances = Number(progress.total_instances || 0);
+  const visitRate = Number(progress.visit_rate || 0);
+
+  pVisitedEl.textContent = `${visited}/${total}`;
+  pLabeledEl.textContent = `${labeled}`;
+  pFlaggedEl.textContent = `${flagged}`;
+  pInstancesEl.textContent = `${totalInstances}`;
+  pSummaryEl.textContent = `Visit rate: ${(visitRate * 100).toFixed(1)}%`;
+  pVisitFillEl.style.width = `${Math.max(0, Math.min(100, visitRate * 100))}%`;
+
+  const items = Array.isArray(progress.flagged_items) ? progress.flagged_items : [];
+  if (items.length === 0) {
+    pFlagListEl.innerHTML = 'Flagged list: none';
+  } else {
+    const rows = items.map((it) => {
+      const idx = Number(it.index || 0);
+      const name = esc(it.name || '-');
+      const current = idx === Number(progress.current_index || 0);
+      const tag = current ? ' (current)' : '';
+      return (
+        `<div class="flagRow">` +
+        `<span class="flagName" title="#${idx} ${name}${tag}">#${idx} ${name}${tag}</span>` +
+        `<button class="btn flagJump" onclick="jumpToImage(${idx})">Jump</button>` +
+        `</div>`
+      );
+    }).join('');
+    pFlagListEl.innerHTML = `Flagged list:${rows}`;
+  }
+}
+
 async function getState() {
   const res = await fetch('/api/state');
   state = await res.json();
@@ -379,6 +442,7 @@ async function getState() {
     { k: 'Image', v: `${state.image_index}/${state.image_total} (${state.image_name || '-'})` },
     { k: 'Class', v: `${activeClass}` },
     { k: 'Instances', v: `${state.instances}` },
+    { k: 'Flagged', v: `${state.flagged}` },
     { k: 'Prompt Mode', v: `${boxMode ? 'Box' : 'Point'} (Box Prompt: ${state.has_box_prompt})` },
     { k: 'Points', v: `${state.points}` },
     { k: 'Score', v: `${state.score}` },
@@ -408,7 +472,7 @@ async function getState() {
 }
 
 async function drawFrame() {
-  await getState();
+  await Promise.all([getState(), getProgress()]);
   if (!state.ready) {
     hasFrame = true;
     renderCanvas();
@@ -484,6 +548,20 @@ async function gotoImage() {
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({action:'goto', index: Math.round(idx)})
+  });
+  await drawFrame();
+  hideLoading();
+}
+
+async function jumpToImage(idx) {
+  if (!state || !state.ready) return;
+  const n = Number(idx);
+  if (!Number.isFinite(n)) return;
+  showLoading('Jumping to image...');
+  await fetch('/api/action', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'goto', index: Math.round(n)})
   });
   await drawFrame();
   hideLoading();
@@ -617,6 +695,7 @@ window.addEventListener('keydown', async (e) => {
   if (e.key === 'ArrowLeft') return act('prev');
   if (e.key === 'n' || e.key === 'N') return act('class_next');
   if (e.key === 'p' || e.key === 'P') return act('class_prev');
+  if (e.key === 'f' || e.key === 'F') return act('toggle_flag');
   if (e.key === 'b' || e.key === 'B') return toggleBoxMode();
   if (e.key === '+' || e.key === '=') return zoomIn();
   if (e.key === '-' || e.key === '_') return zoomOut();

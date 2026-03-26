@@ -105,6 +105,8 @@ class ConfigIn(BaseModel):
 class ImageSessionState:
     instances: list[tuple[str, np.ndarray, float]]
     is_dirty: bool = False
+    visited: bool = False
+    flagged: bool = False
 
 
 class AnnotatorSession:
@@ -189,6 +191,7 @@ class AnnotatorSession:
         items = payload.get("instances", [])
         if not isinstance(items, list):
             return
+        st.flagged = bool(payload.get("flagged", False))
 
         restored: list[tuple[str, np.ndarray, float]] = []
         h, w = self.service.image_rgb.shape[:2]
@@ -226,6 +229,7 @@ class AnnotatorSession:
         if not self.has_images:
             return
         self.current_idx = max(0, min(idx, len(self.images) - 1))
+        self._image_state().visited = True
         cache = self.prefetch.pop_ready(self.current_image)
         if cache is not None:
             self.service.load_cache(cache)
@@ -277,7 +281,7 @@ class AnnotatorSession:
         autosave_json = self.autosave_dir / f"{self.current_image.stem}_autosave.json"
         if not st.is_dirty:
             return
-        if not st.instances:
+        if not st.instances and not st.flagged:
             self.autosave_manager.submit_delete(autosave_json)
             st.is_dirty = False
             return
@@ -286,6 +290,7 @@ class AnnotatorSession:
             "image": str(self.current_image),
             "updated_unix": int(time()),
             "class_list": self.class_list,
+            "flagged": bool(st.flagged),
             "instances": [],
         }
         for i, (label_name, m, score) in enumerate(self._instances()):
@@ -392,6 +397,56 @@ class AnnotatorSession:
         self._write_autosave_if_dirty()
         return True
 
+    def toggle_flag_current(self) -> bool:
+        if not self.has_images:
+            return False
+        st = self._image_state()
+        st.flagged = not st.flagged
+        st.is_dirty = True
+        self._write_autosave_if_dirty()
+        return st.flagged
+
+    def progress(self) -> dict:
+        total = len(self.images)
+        if total == 0:
+            return {
+                "total_images": 0,
+                "visited_count": 0,
+                "labeled_count": 0,
+                "flagged_count": 0,
+                "total_instances": 0,
+                "visit_rate": 0.0,
+                "current_index": 0,
+                "flagged_items": [],
+            }
+        states = list(self.states.values())
+        visited_count = sum(1 for s in states if s.visited)
+        labeled_count = sum(1 for s in states if len(s.instances) > 0)
+        flagged_count = sum(1 for s in states if s.flagged)
+        total_instances = sum(len(s.instances) for s in states)
+        flagged_items: list[dict[str, int | str | bool]] = []
+        for i, img in enumerate(self.images):
+            st = self.states[str(img)]
+            if st.flagged:
+                flagged_items.append(
+                    {
+                        "index": i + 1,
+                        "name": img.name,
+                        "visited": bool(st.visited),
+                        "labeled": len(st.instances) > 0,
+                    }
+                )
+        return {
+            "total_images": int(total),
+            "visited_count": int(visited_count),
+            "labeled_count": int(labeled_count),
+            "flagged_count": int(flagged_count),
+            "total_instances": int(total_instances),
+            "visit_rate": round(float(visited_count) / float(total), 4),
+            "current_index": int(self.current_idx + 1) if self.has_images else 0,
+            "flagged_items": flagged_items,
+        }
+
     def save(self) -> bool:
         if not self.has_images:
             return False
@@ -478,6 +533,8 @@ class AnnotatorSession:
                 self.class_idx = class_idx
         elif action == "set_epsilon" and epsilon is not None:
             self.polygon_epsilon_ratio = max(0.0, min(0.05, float(epsilon)))
+        elif action == "toggle_flag":
+            self.toggle_flag_current()
 
     def render_frame(self, image_format: Literal["jpg", "png"] = "png") -> bytes:
         if self.base_bgr is None or not self.has_images:
@@ -543,6 +600,7 @@ class AnnotatorSession:
                 "prefetch_free_gb": 0.0,
                 "prefetch_paused_low_vram": False,
                 "instances_detail": [],
+                "flagged": False,
             }
         h, w = self.service.image_rgb.shape[:2]
         pf = self.prefetch.status()
@@ -581,6 +639,7 @@ class AnnotatorSession:
             "prefetch_free_gb": round(float(pf["free_gb"]), 2),
             "prefetch_paused_low_vram": bool(pf["paused_low_vram"]),
             "instances_detail": inst_detail,
+            "flagged": bool(self._image_state().flagged),
         }
 
 
@@ -598,6 +657,11 @@ def build_app(session: AnnotatorSession) -> FastAPI:
     def api_state() -> JSONResponse:
         with session.lock:
             return JSONResponse(session.state())
+
+    @app.get("/api/progress")
+    def api_progress() -> JSONResponse:
+        with session.lock:
+            return JSONResponse(session.progress())
 
     @app.get("/api/frame")
     def api_frame(fmt: str = "png") -> Response:
