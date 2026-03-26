@@ -15,6 +15,7 @@ Web-based interactive segmentation annotation tool built around SAM.
 - Mixed prompts (box + points)
 - Backend switch: `sam` / `mobile_sam`
 - Zoom/pan for tiny targets
+- Manual mask editing (brush add/erase + revert to SAM)
 - Multi-instance annotation per image
 - Undo last confirmed instance (`Backspace`)
 - Instance list with per-instance delete
@@ -27,6 +28,7 @@ Web-based interactive segmentation annotation tool built around SAM.
 - Async save + dirty-state autosave
 - Autosave restore on image reload
 - Lossless PNG preview frame rendering in Web UI (sharper mask edges)
+- Overview Lite page (thumbnail wall + status filters + quick jump)
 - Export: COCO + YOLO Segmentation
 - Polygon simplification control (`epsilon`)
 
@@ -85,6 +87,10 @@ If the selected `mobile_sam` checkpoint is not Transformers-SAM compatible, Snap
 - `Shift + Left drag`: pan
 - `B`: toggle box mode
 - Box mode + left drag: create box prompt
+- `E`: toggle edit mask mode
+- `F`: toggle flag
+- `T`: revert current mask to SAM prediction
+- `[` / `]`: brush radius - / +
 - `Enter`: confirm current instance
 - `S`: save all confirmed instances for current image
 - `Backspace`: undo last confirmed instance
@@ -93,6 +99,10 @@ If the selected `mobile_sam` checkpoint is not Transformers-SAM compatible, Snap
 - `Space` / `Right`: next image
 - `Left`: previous image
 - `N` / `P` / `1~9`: switch class
+
+UI tools:
+
+- `Overview` button: open thumbnail wall (`All / Flagged / Labeled / Unseen`) and jump to image.
 
 Note:
 

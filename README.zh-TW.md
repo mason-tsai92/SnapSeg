@@ -15,6 +15,7 @@
 - 混合提示（box + points）
 - 後端可切換：`sam` / `mobile_sam`
 - 縮放/平移，適合小目標
+- 手動遮罩修邊（筆刷加/減 + 還原 SAM）
 - 單張圖多 instance 標註
 - 支援反悔（`Backspace` 撤回最後一筆已確認 instance）
 - 已確認 instance 清單，可逐筆刪除
@@ -27,6 +28,7 @@
 - 非同步存檔 + dirty-state autosave
 - 重新載入圖片時自動還原 autosave 標註
 - Web 預覽改用無損 PNG 畫面傳輸（遮罩邊緣更清楚）
+- 總覽頁 Overview Lite（縮圖牆 + 狀態篩選 + 快速跳轉）
 - 匯出 COCO + YOLO Segmentation
 - `epsilon` 輪廓簡化控制
 
@@ -85,6 +87,10 @@ python main.py --backend mobile_sam --model-id <huggingface_model_id>
 - `Shift + 左鍵拖曳`：平移
 - `B`：切換 Box Mode
 - Box Mode + 左鍵拖曳：建立框選提示
+- `E`：切換 Edit Mask 模式
+- `F`：切換 Flag
+- `T`：還原目前遮罩為 SAM 預測
+- `[` / `]`：調整筆刷半徑
 - `Enter`：確認目前 instance
 - `S`：儲存目前圖片所有已確認 instance
 - `Backspace`：撤回最後一筆已確認 instance
@@ -93,6 +99,10 @@ python main.py --backend mobile_sam --model-id <huggingface_model_id>
 - `Space` / `Right`：下一張
 - `Left`：上一張
 - `N` / `P` / `1~9`：切換類別
+
+介面工具：
+
+- `Overview` 按鈕：開啟縮圖牆（`All / Flagged / Labeled / Unseen`）並可直接跳圖。
 
 說明：
 

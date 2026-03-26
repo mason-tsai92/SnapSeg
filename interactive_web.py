@@ -476,6 +476,23 @@ class AnnotatorSession:
             "flagged_items": flagged_items,
         }
 
+    def overview(self) -> dict:
+        items: list[dict[str, int | str | bool]] = []
+        for i, img in enumerate(self.images):
+            st = self.states[str(img)]
+            items.append(
+                {
+                    "index": i + 1,
+                    "name": img.name,
+                    "visited": bool(st.visited),
+                    "labeled": len(st.instances) > 0,
+                    "flagged": bool(st.flagged),
+                    "instances": int(len(st.instances)),
+                    "is_current": bool((i + 1) == (self.current_idx + 1)),
+                }
+            )
+        return {"items": items, "total_images": int(len(self.images))}
+
     def save(self) -> bool:
         if not self.has_images:
             return False
@@ -697,6 +714,32 @@ def build_app(session: AnnotatorSession) -> FastAPI:
     def api_progress() -> JSONResponse:
         with session.lock:
             return JSONResponse(session.progress())
+
+    @app.get("/api/overview")
+    def api_overview() -> JSONResponse:
+        with session.lock:
+            return JSONResponse(session.overview())
+
+    @app.get("/api/thumb")
+    def api_thumb(index: int, size: int = 240) -> Response:
+        with session.lock:
+            if index < 1 or index > len(session.images):
+                raise HTTPException(status_code=400, detail="Invalid index")
+            img_path = session.images[index - 1]
+        img = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
+        if img is None:
+            raise HTTPException(status_code=404, detail="Image not found")
+        h, w = img.shape[:2]
+        max_side = max(1, int(size))
+        scale = min(1.0, float(max_side) / float(max(h, w)))
+        tw = max(1, int(round(w * scale)))
+        th = max(1, int(round(h * scale)))
+        if (tw, th) != (w, h):
+            img = cv2.resize(img, (tw, th), interpolation=cv2.INTER_AREA)
+        ok, enc = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+        if not ok:
+            raise HTTPException(status_code=500, detail="Thumbnail encode failed")
+        return Response(content=enc.tobytes(), media_type="image/jpeg")
 
     @app.get("/api/frame")
     def api_frame(fmt: str = "png") -> Response:
