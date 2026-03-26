@@ -89,6 +89,13 @@ class BoxIn(BaseModel):
     y2: float
 
 
+class BrushIn(BaseModel):
+    x: float
+    y: float
+    radius: int = 12
+    erase: bool = False
+
+
 class ActionIn(BaseModel):
     action: str
     class_idx: int | None = None
@@ -138,6 +145,7 @@ class AnnotatorSession:
         self.points: list[tuple[float, float]] = []
         self.point_labels: list[int] = []
         self.current_box: tuple[float, float, float, float] | None = None
+        self.sam_mask: np.ndarray | None = None
         self.current_mask: np.ndarray | None = None
         self.last_latency_ms = 0.0
         self.last_score = 0.0
@@ -239,6 +247,7 @@ class AnnotatorSession:
         self.points.clear()
         self.point_labels.clear()
         self.current_box = None
+        self.sam_mask = None
         self.current_mask = None
         self.last_latency_ms = 0.0
         self.last_score = 0.0
@@ -319,6 +328,7 @@ class AnnotatorSession:
         if not self.has_images:
             return
         if not self.points and self.current_box is None:
+            self.sam_mask = None
             self.current_mask = None
             self.last_latency_ms = 0.0
             self.last_score = 0.0
@@ -331,7 +341,9 @@ class AnnotatorSession:
             box_xyxy=list(self.current_box) if self.current_box is not None else None,
             multimask_output=False,
         )
-        self.current_mask = pred.mask > 0
+        mask_u8 = (pred.mask > 0).astype(np.uint8)
+        self.sam_mask = mask_u8
+        self.current_mask = mask_u8.copy()
         self.last_latency_ms = pred.latency_ms
         self.last_score = pred.score
 
@@ -367,10 +379,27 @@ class AnnotatorSession:
         self.points.clear()
         self.point_labels.clear()
         self.current_box = None
+        self.sam_mask = None
         self.current_mask = None
         self.last_score = 0.0
         self.last_latency_ms = 0.0
         self._write_autosave_if_dirty()
+        return True
+
+    def brush(self, x: float, y: float, radius: int, erase: bool) -> bool:
+        if not self.has_images:
+            return False
+        if self.current_mask is None:
+            return False
+        h, w = self.service.image_rgb.shape[:2]
+        cx = int(max(0, min(w - 1, round(float(x)))))
+        cy = int(max(0, min(h - 1, round(float(y)))))
+        rr = int(max(1, min(128, int(radius))))
+        target = self.current_mask.astype(np.uint8).copy()
+        value = 0 if erase else 1
+        cv2.circle(target, (cx, cy), rr, color=value, thickness=-1, lineType=cv2.LINE_AA)
+        self.current_mask = target
+        self._image_state().is_dirty = True
         return True
 
     def remove_last_instance(self) -> bool:
@@ -535,6 +564,10 @@ class AnnotatorSession:
             self.polygon_epsilon_ratio = max(0.0, min(0.05, float(epsilon)))
         elif action == "toggle_flag":
             self.toggle_flag_current()
+        elif action == "revert_mask":
+            if self.sam_mask is not None:
+                self.current_mask = self.sam_mask.copy()
+                self._image_state().is_dirty = True
 
     def render_frame(self, image_format: Literal["jpg", "png"] = "png") -> bytes:
         if self.base_bgr is None or not self.has_images:
@@ -601,6 +634,7 @@ class AnnotatorSession:
                 "prefetch_paused_low_vram": False,
                 "instances_detail": [],
                 "flagged": False,
+                "has_mask": False,
             }
         h, w = self.service.image_rgb.shape[:2]
         pf = self.prefetch.status()
@@ -640,6 +674,7 @@ class AnnotatorSession:
             "prefetch_paused_low_vram": bool(pf["paused_low_vram"]),
             "instances_detail": inst_detail,
             "flagged": bool(self._image_state().flagged),
+            "has_mask": self.current_mask is not None,
         }
 
 
@@ -682,6 +717,13 @@ def build_app(session: AnnotatorSession) -> FastAPI:
     def api_box(data: BoxIn) -> JSONResponse:
         with session.lock:
             session.set_box(float(data.x1), float(data.y1), float(data.x2), float(data.y2))
+            out = session.state()
+        return JSONResponse(out)
+
+    @app.post("/api/brush")
+    def api_brush(data: BrushIn) -> JSONResponse:
+        with session.lock:
+            session.brush(float(data.x), float(data.y), int(data.radius), bool(data.erase))
             out = session.state()
         return JSONResponse(out)
 

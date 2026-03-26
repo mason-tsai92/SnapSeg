@@ -144,6 +144,11 @@
         <button class="btn" onclick="act('toggle_flag')">Toggle Flag (F)</button>
         <button class="btn warn" onclick="act('undo_instance')">Undo Last Instance (Backspace)</button>
         <button id="boxModeBtn" class="btn" onclick="toggleBoxMode()">Box Mode (B): Off</button>
+        <button id="editModeBtn" class="btn" onclick="toggleEditMode()">Edit Mask (E): Off</button>
+        <button id="brushTypeBtn" class="btn" onclick="toggleBrushType()">Brush: Add</button>
+        <div style="margin-top:6px;margin-bottom:6px;">Brush Radius</div>
+        <input id="brushRadius" type="range" min="1" max="64" step="1" value="12" style="width:100%;">
+        <button class="btn" onclick="act('revert_mask')">Revert to SAM (T)</button>
       </div>
       <div class="section">
         <div style="margin-top:2px;margin-bottom:6px;">Polygon Smoothing (epsilon)</div>
@@ -201,7 +206,8 @@
       <div class="infoCard">
         <div class="status">
           Core: Enter(confirm), S(save), Space(next), B(box mode), F(flag), Backspace(undo instance)<br/>
-          Click: Left(+), Right(-), Wheel(zoom), Shift+Drag(pan)
+          Edit: E(toggle), Left/Add, Right/Erase, T(revert), [ / ](radius)<br/>
+          View: Wheel(zoom), Shift+Drag(pan)
         </div>
       </div>
     </aside>
@@ -219,6 +225,9 @@ const sourceEl = document.getElementById('sourcePath');
 const classInputEl = document.getElementById('classInput');
 const instanceListEl = document.getElementById('instanceList');
 const boxModeBtn = document.getElementById('boxModeBtn');
+const editModeBtn = document.getElementById('editModeBtn');
+const brushTypeBtn = document.getElementById('brushTypeBtn');
+const brushRadiusEl = document.getElementById('brushRadius');
 const pVisitedEl = document.getElementById('pVisited');
 const pLabeledEl = document.getElementById('pLabeled');
 const pFlaggedEl = document.getElementById('pFlagged');
@@ -245,6 +254,14 @@ let boxStartX = 0.0;
 let boxStartY = 0.0;
 let boxEndX = 0.0;
 let boxEndY = 0.0;
+let editMode = false;
+let brushErase = false;
+let dragBrush = false;
+let brushX = null;
+let brushY = null;
+let brushBusy = false;
+let queuedBrush = null;
+let lastBrushSentAt = 0;
 
 function esc(s) {
   return String(s ?? '')
@@ -305,10 +322,32 @@ function updateBoxModeButton() {
   boxModeBtn.style.borderColor = boxMode ? '#2ea162' : '#3a4d62';
 }
 
+function updateEditButtons() {
+  editModeBtn.textContent = `Edit Mask (E): ${editMode ? 'On' : 'Off'}`;
+  editModeBtn.style.borderColor = editMode ? '#2ea162' : '#3a4d62';
+  brushTypeBtn.textContent = `Brush: ${brushErase ? 'Erase' : 'Add'}`;
+  brushTypeBtn.style.borderColor = brushErase ? '#a16a2e' : '#2ea162';
+}
+
 function toggleBoxMode() {
   boxMode = !boxMode;
+  if (boxMode) editMode = false;
   dragBox = false;
   updateBoxModeButton();
+  updateEditButtons();
+}
+
+function toggleEditMode() {
+  editMode = !editMode;
+  if (editMode) boxMode = false;
+  dragBrush = false;
+  updateBoxModeButton();
+  updateEditButtons();
+}
+
+function toggleBrushType() {
+  brushErase = !brushErase;
+  updateEditButtons();
 }
 
 function canvasToImage(e) {
@@ -359,6 +398,16 @@ function renderCanvas() {
     ctx.lineWidth = 2.0 / Math.max(0.01, viewScale);
     ctx.strokeStyle = '#ffe066';
     ctx.strokeRect(x, y, w, h);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+  }
+  if (editMode && state && state.ready && brushX !== null && brushY !== null) {
+    const r = Math.max(1, Number(brushRadiusEl.value || 12));
+    ctx.setTransform(viewScale, 0, 0, viewScale, viewTx, viewTy);
+    ctx.lineWidth = 1.6 / Math.max(0.01, viewScale);
+    ctx.strokeStyle = brushErase ? '#ff9f40' : '#4fbf84';
+    ctx.beginPath();
+    ctx.arc(brushX, brushY, r, 0, Math.PI * 2);
+    ctx.stroke();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   }
 }
@@ -482,14 +531,15 @@ async function drawFrame() {
     currentImageName = state.image_name;
     zoomReset();
   }
-  frameImg = new Image();
-  frameImg.onload = () => {
+  const nextImg = new Image();
+  nextImg.onload = () => {
     cv.width = state.width;
     cv.height = state.height;
+    frameImg = nextImg;
     hasFrame = true;
     renderCanvas();
   };
-  frameImg.src = `/api/frame?fmt=png&ts=${Date.now()}`;
+  nextImg.src = `/api/frame?fmt=png&ts=${Date.now()}`;
 }
 
 async function act(action) {
@@ -526,6 +576,40 @@ async function submitBox(x1, y1, x2, y2) {
     body:JSON.stringify({x1, y1, x2, y2})
   });
   await drawFrame();
+}
+
+async function pumpBrush() {
+  if (brushBusy || !queuedBrush) return;
+  const now = Date.now();
+  if (now - lastBrushSentAt < 35) {
+    setTimeout(pumpBrush, 20);
+    return;
+  }
+  const q = queuedBrush;
+  queuedBrush = null;
+  brushBusy = true;
+  try {
+    await fetch('/api/brush', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        x: q.x,
+        y: q.y,
+        radius: Number(brushRadiusEl.value || 12),
+        erase: !!q.erase,
+      }),
+    });
+    await drawFrame();
+  } finally {
+    lastBrushSentAt = Date.now();
+    brushBusy = false;
+    if (queuedBrush) setTimeout(pumpBrush, 0);
+  }
+}
+
+function enqueueBrush(x, y, erase) {
+  queuedBrush = { x, y, erase };
+  pumpBrush();
 }
 
 async function applyEpsilon() {
@@ -624,6 +708,16 @@ cv.addEventListener('mousedown', async (e) => {
     cv.style.cursor = 'grabbing';
     return;
   }
+  if (editMode && (e.button === 0 || e.button === 2)) {
+    const p = canvasToImage(e);
+    brushX = p.x;
+    brushY = p.y;
+    dragBrush = true;
+    const erase = (e.button === 2) ? true : brushErase;
+    enqueueBrush(p.x, p.y, erase);
+    renderCanvas();
+    return;
+  }
   if (boxMode && e.button === 0) {
     const p = canvasToImage(e);
     dragBox = true;
@@ -643,6 +737,11 @@ cv.addEventListener('mousedown', async (e) => {
 });
 
 cv.addEventListener('mousemove', async (e) => {
+  if (state && state.ready) {
+    const p = canvasToImage(e);
+    brushX = p.x;
+    brushY = p.y;
+  }
   if (dragPan) {
     const dx = (e.clientX - panLastX) * (cv.width / cv.getBoundingClientRect().width);
     const dy = (e.clientY - panLastY) * (cv.height / cv.getBoundingClientRect().height);
@@ -653,10 +752,20 @@ cv.addEventListener('mousemove', async (e) => {
     renderCanvas();
     return;
   }
+  if (dragBrush) {
+    const erase = (e.buttons & 2) ? true : brushErase;
+    enqueueBrush(brushX, brushY, erase);
+    renderCanvas();
+    return;
+  }
   if (dragBox) {
     const p = canvasToImage(e);
     boxEndX = p.x;
     boxEndY = p.y;
+    renderCanvas();
+    return;
+  }
+  if (editMode) {
     renderCanvas();
   }
 });
@@ -679,6 +788,9 @@ window.addEventListener('mouseup', async () => {
       renderCanvas();
     }
   }
+  if (dragBrush) {
+    dragBrush = false;
+  }
 });
 
 window.addEventListener('keydown', async (e) => {
@@ -696,7 +808,19 @@ window.addEventListener('keydown', async (e) => {
   if (e.key === 'n' || e.key === 'N') return act('class_next');
   if (e.key === 'p' || e.key === 'P') return act('class_prev');
   if (e.key === 'f' || e.key === 'F') return act('toggle_flag');
+  if (e.key === 'e' || e.key === 'E') return toggleEditMode();
+  if (e.key === 't' || e.key === 'T') return act('revert_mask');
   if (e.key === 'b' || e.key === 'B') return toggleBoxMode();
+  if (e.key === '[') {
+    e.preventDefault();
+    brushRadiusEl.value = String(Math.max(1, Number(brushRadiusEl.value || 12) - 1));
+    return renderCanvas();
+  }
+  if (e.key === ']') {
+    e.preventDefault();
+    brushRadiusEl.value = String(Math.min(64, Number(brushRadiusEl.value || 12) + 1));
+    return renderCanvas();
+  }
   if (e.key === '+' || e.key === '=') return zoomIn();
   if (e.key === '-' || e.key === '_') return zoomOut();
   if (e.key === '0') return zoomReset();
@@ -704,6 +828,7 @@ window.addEventListener('keydown', async (e) => {
 });
 
 updateBoxModeButton();
+updateEditButtons();
 drawFrame();
 </script>
 </body>
