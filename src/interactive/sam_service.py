@@ -1,0 +1,156 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from time import perf_counter
+from typing import Any
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+from PIL import Image
+
+
+@dataclass
+class SamPrediction:
+    mask: np.ndarray
+    score: float
+    latency_ms: float
+
+
+@dataclass
+class SamImageCache:
+    image_path: Path
+    image_rgb: np.ndarray
+    image_embeddings: torch.Tensor
+    orig_h: int
+    orig_w: int
+    reshape_h: int
+    reshape_w: int
+
+
+class SamEmbeddingCacheService:
+    def __init__(
+        self,
+        model_id: str = "facebook/sam-vit-base",
+        device: str | None = None,
+    ) -> None:
+        self.model_id = model_id
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self._processor: Any | None = None
+        self._model: Any | None = None
+
+        self._image_path: Path | None = None
+        self._image_rgb: np.ndarray | None = None
+        self._image_embeddings: torch.Tensor | None = None
+        self._orig_h: int = 0
+        self._orig_w: int = 0
+        self._reshape_h: int = 0
+        self._reshape_w: int = 0
+
+    def _ensure_model(self) -> None:
+        if self._processor is not None and self._model is not None:
+            return
+        from transformers import SamModel, SamProcessor
+
+        try:
+            self._processor = SamProcessor.from_pretrained(self.model_id, local_files_only=True)
+            self._model = SamModel.from_pretrained(self.model_id, local_files_only=True).to(self.device)
+        except Exception:
+            self._processor = SamProcessor.from_pretrained(self.model_id)
+            self._model = SamModel.from_pretrained(self.model_id).to(self.device)
+        self._model.eval()
+
+    def set_image(self, image_path: Path) -> None:
+        self._ensure_model()
+        self._image_path = image_path
+
+        image = Image.open(image_path).convert("RGB")
+        self._image_rgb = np.array(image, dtype=np.uint8)
+
+        inputs = self._processor(images=image, return_tensors="pt")
+        orig = inputs["original_sizes"][0].tolist()
+        reshaped = inputs["reshaped_input_sizes"][0].tolist()
+        self._orig_h, self._orig_w = int(orig[0]), int(orig[1])
+        self._reshape_h, self._reshape_w = int(reshaped[0]), int(reshaped[1])
+        pixel_values = inputs["pixel_values"].to(self.device)
+
+        with torch.no_grad():
+            self._image_embeddings = self._model.get_image_embeddings(pixel_values)
+
+    def snapshot_cache(self, to_cpu: bool = True) -> SamImageCache:
+        if self._image_path is None or self._image_rgb is None or self._image_embeddings is None:
+            raise RuntimeError("No image cache available. Call set_image first.")
+        emb = self._image_embeddings.detach()
+        if to_cpu:
+            emb = emb.cpu()
+        return SamImageCache(
+            image_path=self._image_path,
+            image_rgb=self._image_rgb.copy(),
+            image_embeddings=emb,
+            orig_h=self._orig_h,
+            orig_w=self._orig_w,
+            reshape_h=self._reshape_h,
+            reshape_w=self._reshape_w,
+        )
+
+    def load_cache(self, cache: SamImageCache) -> None:
+        self._ensure_model()
+        self._image_path = cache.image_path
+        self._image_rgb = cache.image_rgb.copy()
+        self._orig_h = int(cache.orig_h)
+        self._orig_w = int(cache.orig_w)
+        self._reshape_h = int(cache.reshape_h)
+        self._reshape_w = int(cache.reshape_w)
+        self._image_embeddings = cache.image_embeddings.to(self.device)
+
+    @property
+    def image_rgb(self) -> np.ndarray:
+        if self._image_rgb is None:
+            raise RuntimeError("Image is not set. Call set_image first.")
+        return self._image_rgb
+
+    def predict(
+        self,
+        point_coords: list[list[float]],
+        point_labels: list[int],
+        multimask_output: bool = False,
+    ) -> SamPrediction:
+        if self._image_embeddings is None:
+            raise RuntimeError("Image embeddings are not cached. Call set_image first.")
+        if len(point_coords) != len(point_labels):
+            raise ValueError("point_coords and point_labels must have same length.")
+        if not point_coords:
+            raise ValueError("At least one point is required.")
+
+        coords_np = np.asarray(point_coords, dtype=np.float32)
+        coords_np[:, 0] = (coords_np[:, 0] + 0.5) * (float(self._reshape_w) / max(1.0, float(self._orig_w)))
+        coords_np[:, 1] = (coords_np[:, 1] + 0.5) * (float(self._reshape_h) / max(1.0, float(self._orig_h)))
+        input_points = torch.from_numpy(coords_np).to(self.device).unsqueeze(0).unsqueeze(0)
+        input_labels = torch.tensor(point_labels, dtype=torch.int64, device=self.device).unsqueeze(0).unsqueeze(0)
+
+        t0 = perf_counter()
+        with torch.no_grad():
+            outputs = self._model(
+                image_embeddings=self._image_embeddings,
+                input_points=input_points,
+                input_labels=input_labels,
+                multimask_output=multimask_output,
+            )
+
+            low_res_masks = outputs.pred_masks[0, 0]  # [K, H, W]
+            iou_scores = outputs.iou_scores[0, 0]  # [K]
+            best_idx = int(torch.argmax(iou_scores).item())
+            best_mask = low_res_masks[best_idx].unsqueeze(0).unsqueeze(0)  # [1,1,H,W]
+            up = F.interpolate(
+                best_mask,
+                size=(self._orig_h, self._orig_w),
+                mode="bilinear",
+                align_corners=False,
+            )
+            binary = (up[0, 0] > 0.0).to(torch.uint8)
+            score = float(iou_scores[best_idx].item())
+        latency_ms = (perf_counter() - t0) * 1000.0
+
+        mask_np = binary.detach().cpu().numpy().astype(np.uint8)
+        return SamPrediction(mask=mask_np, score=score, latency_ms=latency_ms)

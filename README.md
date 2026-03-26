@@ -1,0 +1,116 @@
+﻿# SnapSeg
+
+[繁體中文說明](README.zh-TW.md)
+
+Web-based interactive segmentation annotation tool built around SAM.
+
+## Demo
+
+![SnapSeg Demo](docs/demo.gif)
+
+## Features
+
+- Positive/negative point prompts
+- Zoom/pan for tiny targets
+- Multi-instance annotation per image
+- Undo last confirmed instance (`Backspace`)
+- Instance list with per-instance delete
+- Manual navigation (`Prev` / `Next` / `Goto`)
+- In-UI source picker (folder or image)
+- In-UI class configuration
+- SAM embedding cache (`set_image` once per image)
+- Next-image prefetch queue
+- VRAM guard (pause prefetch if free VRAM < 2GB)
+- Async save + dirty-state autosave
+- Export: COCO + YOLO Segmentation
+- Polygon simplification control (`epsilon`)
+
+## Install
+
+Requirements:
+
+- Python 3.10+
+- CUDA GPU recommended (CPU supported, slower)
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+## Model
+
+- Backend: `transformers` + `facebook/sam-vit-base`
+- Weights download automatically on first run (Hugging Face cache)
+
+## Run
+
+```bash
+python main.py
+```
+
+Open: `http://127.0.0.1:7861`
+
+LAN mode:
+
+```bash
+python main.py --host 0.0.0.0 --port 7861
+```
+
+Then open `http://<SERVER_IP>:7861`.
+
+## Basic Workflow
+
+1. Pick source folder/image
+2. Set classes (comma-separated)
+3. Click `Load Source`
+4. Annotate and save
+
+## Controls
+
+- Left click: positive point
+- Right click: negative point
+- Mouse wheel: zoom
+- `Shift + Left drag`: pan
+- `Enter`: confirm current instance
+- `S`: save all confirmed instances for current image
+- `Backspace`: undo last confirmed instance
+- `U`: undo last point
+- `R`: reset current points/mask
+- `Space` / `Right`: next image
+- `Left`: previous image
+- `N` / `P` / `1~9`: switch class
+
+Note:
+
+- `Enter` only confirms in memory
+- `S` writes to disk
+
+## Output
+
+Per image:
+
+- `outputs/<run>/<image_stem>/annotations_coco.json`
+- `outputs/<run>/<image_stem>/labels_yolo_seg/*.txt`
+- `outputs/<run>/<image_stem>/*_mask_*.png`
+
+Autosave:
+
+- `outputs/<run>/autosave/<image_stem>_autosave.json`
+
+## Performance Check
+
+```bash
+python profile_sam_latency.py --image examples/sample.jpg --runs 30 --points 2 --device auto
+```
+
+## Project Layout
+
+- `main.py` - entry point
+- `interactive_web.py` - Web UI + API
+- `src/interactive/sam_service.py` - SAM service and embedding cache
+- `src/interactive/runtime.py` - prefetch + async save/autosave
+- `src/interactive/exporter.py` - COCO/YOLO export
+- `profile_sam_latency.py` - latency profiling
+
+## License
+
+MIT. See [LICENSE](LICENSE).

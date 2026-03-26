@@ -1,0 +1,19 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual env / local env files
+.env
+.venv/
+venv/
+
+# Runtime outputs and experiment artifacts
+outputs/
+
+# Local datasets (usually large, keep local)
+datasets/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/

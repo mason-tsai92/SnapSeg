@@ -1,0 +1,7 @@
+﻿torch>=2.5.1
+transformers>=5.3.0
+pillow>=12.1.0
+opencv-python>=4.13.0
+numpy>=2.2.2
+fastapi>=0.115.2
+uvicorn>=0.30.0
