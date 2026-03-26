@@ -1,6 +1,6 @@
 # SnapSeg
 
-[ÁcÅé¤¤¤å»¡©ú](README.zh-TW.md)
+[ä¸­æ–‡ç‰ˆREADME](README.zh-TW.md)
 
 Web-based interactive segmentation annotation tool built around SAM.
 
