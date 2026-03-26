@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import argparse
+import json
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -68,6 +69,13 @@ class ClickIn(BaseModel):
     label: int
 
 
+class BoxIn(BaseModel):
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+
+
 class ActionIn(BaseModel):
     action: str
     class_idx: int | None = None
@@ -106,6 +114,7 @@ class AnnotatorSession:
         self.class_idx = 0
         self.points: list[tuple[float, float]] = []
         self.point_labels: list[int] = []
+        self.current_box: tuple[float, float, float, float] | None = None
         self.current_mask: np.ndarray | None = None
         self.last_latency_ms = 0.0
         self.last_score = 0.0
@@ -132,6 +141,58 @@ class AnnotatorSession:
     def _instances(self) -> list[tuple[str, np.ndarray, float]]:
         return self._image_state().instances
 
+    def _restore_autosave_for_current_image(self) -> None:
+        if not self.has_images:
+            return
+        st = self._image_state()
+        if st.instances:
+            return
+
+        autosave_json = self.autosave_dir / f"{self.current_image.stem}_autosave.json"
+        if not autosave_json.exists():
+            return
+
+        try:
+            payload = json.loads(autosave_json.read_text(encoding="utf-8"))
+        except Exception:
+            return
+
+        items = payload.get("instances", [])
+        if not isinstance(items, list):
+            return
+
+        restored: list[tuple[str, np.ndarray, float]] = []
+        h, w = self.service.image_rgb.shape[:2]
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            label_name = str(item.get("label", "object")).strip() or "object"
+            try:
+                score = float(item.get("score", 0.0))
+            except Exception:
+                score = 0.0
+            mask_path_raw = item.get("mask_path")
+            if not mask_path_raw:
+                continue
+            mask_path = Path(str(mask_path_raw))
+            if not mask_path.is_absolute():
+                mask_path = (self.out_dir / mask_path).resolve()
+            if not mask_path.exists():
+                continue
+            mask_img = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
+            if mask_img is None:
+                continue
+            if mask_img.shape[:2] != (h, w):
+                continue
+            mask_bin = (mask_img > 0).astype(np.uint8)
+            if int(mask_bin.sum()) == 0:
+                continue
+            restored.append((label_name, mask_bin, score))
+
+        if restored:
+            st.instances = restored
+            st.is_dirty = False
+
     def _load_image(self, idx: int) -> None:
         if not self.has_images:
             return
@@ -144,9 +205,11 @@ class AnnotatorSession:
         self.base_bgr = cv2.cvtColor(self.service.image_rgb, cv2.COLOR_RGB2BGR)
         self.points.clear()
         self.point_labels.clear()
+        self.current_box = None
         self.current_mask = None
         self.last_latency_ms = 0.0
         self.last_score = 0.0
+        self._restore_autosave_for_current_image()
         if self.current_idx + 1 < len(self.images):
             self.prefetch.request(self.images[self.current_idx + 1])
 
@@ -221,14 +284,17 @@ class AnnotatorSession:
     def _run_predict(self) -> None:
         if not self.has_images:
             return
-        if not self.points:
+        if not self.points and self.current_box is None:
             self.current_mask = None
             self.last_latency_ms = 0.0
             self.last_score = 0.0
             return
+        point_coords = [[float(x), float(y)] for x, y in self.points] if self.points else None
+        point_labels = self.point_labels if self.points else None
         pred = self.service.predict(
-            point_coords=[[float(x), float(y)] for x, y in self.points],
-            point_labels=self.point_labels,
+            point_coords=point_coords,
+            point_labels=point_labels,
+            box_xyxy=list(self.current_box) if self.current_box is not None else None,
             multimask_output=False,
         )
         self.current_mask = pred.mask > 0
@@ -243,6 +309,20 @@ class AnnotatorSession:
         self._image_state().is_dirty = True
         self._run_predict()
 
+    def set_box(self, x1: float, y1: float, x2: float, y2: float) -> None:
+        if not self.has_images:
+            return
+        h, w = self.service.image_rgb.shape[:2]
+        lx = float(max(0.0, min(float(w - 1), min(x1, x2))))
+        rx = float(max(0.0, min(float(w - 1), max(x1, x2))))
+        ty = float(max(0.0, min(float(h - 1), min(y1, y2))))
+        by = float(max(0.0, min(float(h - 1), max(y1, y2))))
+        if (rx - lx) < 2.0 or (by - ty) < 2.0:
+            return
+        self.current_box = (lx, ty, rx, by)
+        self._image_state().is_dirty = True
+        self._run_predict()
+
     def confirm(self) -> bool:
         if not self.has_images:
             return False
@@ -252,6 +332,7 @@ class AnnotatorSession:
         self._image_state().is_dirty = True
         self.points.clear()
         self.point_labels.clear()
+        self.current_box = None
         self.current_mask = None
         self.last_score = 0.0
         self.last_latency_ms = 0.0
@@ -330,6 +411,7 @@ class AnnotatorSession:
         elif action == "reset":
             self.points.clear()
             self.point_labels.clear()
+            self.current_box = None
             self.current_mask = None
             self.last_score = 0.0
             self.last_latency_ms = 0.0
@@ -388,6 +470,9 @@ class AnnotatorSession:
             color[:, :, 2] = 255
             mm = self.current_mask.astype(bool)
             view[mm] = (0.58 * view[mm] + 0.42 * color[mm]).astype(np.uint8)
+        if self.current_box is not None:
+            x1, y1, x2, y2 = [int(v) for v in self.current_box]
+            cv2.rectangle(view, (x1, y1), (x2, y2), (80, 220, 255), 2, lineType=cv2.LINE_AA)
         ok, enc = cv2.imencode(".jpg", view, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
         if not ok:
             raise RuntimeError("Frame encode failed")
@@ -413,6 +498,7 @@ class AnnotatorSession:
                 "polygon_epsilon_ratio": self.polygon_epsilon_ratio,
                 "save_queue": self.save_manager.pending(),
                 "autosave_queue": self.autosave_manager.pending(),
+                "has_box_prompt": False,
                 "prefetch_free_gb": 0.0,
                 "prefetch_paused_low_vram": False,
                 "instances_detail": [],
@@ -441,6 +527,7 @@ class AnnotatorSession:
             "polygon_epsilon_ratio": self.polygon_epsilon_ratio,
             "save_queue": self.save_manager.pending(),
             "autosave_queue": self.autosave_manager.pending(),
+            "has_box_prompt": self.current_box is not None,
             "prefetch_free_gb": round(float(pf["free_gb"]), 2),
             "prefetch_paused_low_vram": bool(pf["paused_low_vram"]),
             "instances_detail": inst_detail,
@@ -543,6 +630,7 @@ def build_app(session: AnnotatorSession) -> FastAPI:
         <button class="btn warn" onclick="act('reset')">R Reset Current</button>
       </div>
       <button class="btn warn" onclick="act('undo_instance')">Backspace Undo Last Instance</button>
+      <button id="boxModeBtn" class="btn" onclick="toggleBoxMode()">B Box Mode: Off</button>
       <div style="margin-top:8px;margin-bottom:6px;">Polygon Smoothing (epsilon)</div>
       <input id="eps" type="range" min="0" max="0.02" step="0.0005" value="0.005" style="width:100%;">
       <div class="row">
@@ -567,9 +655,10 @@ def build_app(session: AnnotatorSession) -> FastAPI:
       <div class="status" style="margin-top:12px;">
         Left click: positive point (+)<br/>
         Right click: negative point (-)<br/>
+        Box mode: left drag to draw box prompt<br/>
         Mouse wheel: zoom in/out<br/>
         Shift + left drag: pan view<br/>
-        Hotkeys: S / Enter / Space / Left / Right / U / R / Backspace / N / P / 1-9 / 0 (reset zoom)
+        Hotkeys: S / Enter / Space / Left / Right / U / R / Backspace / B / N / P / 1-9 / 0 (reset zoom)
       </div>
     </div>
     <div class="canvasWrap panel">
@@ -587,6 +676,7 @@ const gotoEl = document.getElementById('gotoIdx');
 const sourceEl = document.getElementById('sourcePath');
 const classInputEl = document.getElementById('classInput');
 const instanceListEl = document.getElementById('instanceList');
+const boxModeBtn = document.getElementById('boxModeBtn');
 const loadingOverlay = document.getElementById('loadingOverlay');
 const loadingText = document.getElementById('loadingText');
 let state = null;
@@ -599,6 +689,12 @@ let viewTy = 0.0;
 let dragPan = false;
 let panLastX = 0.0;
 let panLastY = 0.0;
+let boxMode = false;
+let dragBox = false;
+let boxStartX = 0.0;
+let boxStartY = 0.0;
+let boxEndX = 0.0;
+let boxEndY = 0.0;
 
 function showLoading(msg) {
   loadingText.textContent = msg || 'Loading...';
@@ -634,6 +730,28 @@ function zoomOut() {
   zoomAt(cv.width / 2, cv.height / 2, 1.0 / 1.2);
 }
 
+function updateBoxModeButton() {
+  boxModeBtn.textContent = `B Box Mode: ${boxMode ? 'On' : 'Off'}`;
+  boxModeBtn.style.borderColor = boxMode ? '#2ea162' : '#3a4d62';
+}
+
+function toggleBoxMode() {
+  boxMode = !boxMode;
+  dragBox = false;
+  updateBoxModeButton();
+}
+
+function canvasToImage(e) {
+  const rect = cv.getBoundingClientRect();
+  const cx = (e.clientX - rect.left) * (cv.width / rect.width);
+  const cy = (e.clientY - rect.top) * (cv.height / rect.height);
+  const imgX = (cx - viewTx) / viewScale;
+  const imgY = (cy - viewTy) / viewScale;
+  const x = Math.max(0, Math.min(state.width - 1, imgX));
+  const y = Math.max(0, Math.min(state.height - 1, imgY));
+  return { x, y };
+}
+
 function renderCanvas() {
   if (!hasFrame || !state) return;
   if (!state.ready) {
@@ -662,6 +780,17 @@ function renderCanvas() {
   ctx.setTransform(viewScale, 0, 0, viewScale, viewTx, viewTy);
   ctx.drawImage(frameImg, 0, 0, state.width, state.height);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (dragBox) {
+    const x = Math.min(boxStartX, boxEndX);
+    const y = Math.min(boxStartY, boxEndY);
+    const w = Math.abs(boxEndX - boxStartX);
+    const h = Math.abs(boxEndY - boxStartY);
+    ctx.setTransform(viewScale, 0, 0, viewScale, viewTx, viewTy);
+    ctx.lineWidth = 2.0 / Math.max(0.01, viewScale);
+    ctx.strokeStyle = '#ffe066';
+    ctx.strokeRect(x, y, w, h);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+  }
 }
 
 function renderInstanceList() {
@@ -696,13 +825,13 @@ async function getState() {
   });
   statusEl.textContent =
     `Image: ${state.image_index}/${state.image_total} (${state.image_name})\\n` +
-    `Class: ${state.class_list[state.class_idx]}  |  Instances: ${state.instances}\\n` +
+    `Class: ${state.class_list[state.class_idx]}  |  Instances: ${state.instances}  |  Box Prompt: ${state.has_box_prompt}\\n` +
     `Points: ${state.points}  |  Score: ${state.score}  |  Decoder: ${state.latency_ms} ms\\n` +
     `Save Queue: ${state.save_queue}  |  Autosave Queue: ${state.autosave_queue}\\n` +
     `Prefetch Free VRAM: ${state.prefetch_free_gb} GB\\n` +
     `Prefetch Paused(<2GB): ${state.prefetch_paused_low_vram}\\n` +
     `Autosave: ${state.autosave}\\n` +
-    `Zoom: ${viewScale.toFixed(2)}x`;
+    `Zoom: ${viewScale.toFixed(2)}x  |  Mode: ${boxMode ? 'Box' : 'Point'}`;
   epsEl.value = Number(state.polygon_epsilon_ratio || 0.005);
   epsText.textContent = `Current epsilon: ${Number(state.polygon_epsilon_ratio || 0.005).toFixed(4)}`;
   gotoEl.max = String(state.image_total);
@@ -759,6 +888,16 @@ async function deleteInstance(idx) {
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({action:'delete_instance', index: Number(idx)})
+  });
+  await drawFrame();
+}
+
+async function submitBox(x1, y1, x2, y2) {
+  if (!state || !state.ready) return;
+  await fetch('/api/box', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({x1, y1, x2, y2})
   });
   await drawFrame();
 }
@@ -837,7 +976,7 @@ cv.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 cv.addEventListener('mousedown', async (e) => {
-  if (!state) return;
+  if (!state || !state.ready) return;
   if (e.button === 0 && e.shiftKey) {
     dragPan = true;
     panLastX = e.clientX;
@@ -845,33 +984,60 @@ cv.addEventListener('mousedown', async (e) => {
     cv.style.cursor = 'grabbing';
     return;
   }
-  const rect = cv.getBoundingClientRect();
-  const cx = (e.clientX - rect.left) * (cv.width / rect.width);
-  const cy = (e.clientY - rect.top) * (cv.height / rect.height);
-  const imgX = (cx - viewTx) / viewScale;
-  const imgY = (cy - viewTy) / viewScale;
-  const x = Math.max(0, Math.min(state.width - 1, imgX));
-  const y = Math.max(0, Math.min(state.height - 1, imgY));
+  if (boxMode && e.button === 0) {
+    const p = canvasToImage(e);
+    dragBox = true;
+    boxStartX = p.x;
+    boxStartY = p.y;
+    boxEndX = p.x;
+    boxEndY = p.y;
+    renderCanvas();
+    return;
+  }
+  const p = canvasToImage(e);
+  const x = p.x;
+  const y = p.y;
   const label = (e.button === 2) ? 0 : 1;
   await fetch('/api/click', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({x, y, label})});
   await drawFrame();
 });
 
-cv.addEventListener('mousemove', (e) => {
-  if (!dragPan) return;
-  const dx = (e.clientX - panLastX) * (cv.width / cv.getBoundingClientRect().width);
-  const dy = (e.clientY - panLastY) * (cv.height / cv.getBoundingClientRect().height);
-  panLastX = e.clientX;
-  panLastY = e.clientY;
-  viewTx += dx;
-  viewTy += dy;
-  renderCanvas();
+cv.addEventListener('mousemove', async (e) => {
+  if (dragPan) {
+    const dx = (e.clientX - panLastX) * (cv.width / cv.getBoundingClientRect().width);
+    const dy = (e.clientY - panLastY) * (cv.height / cv.getBoundingClientRect().height);
+    panLastX = e.clientX;
+    panLastY = e.clientY;
+    viewTx += dx;
+    viewTy += dy;
+    renderCanvas();
+    return;
+  }
+  if (dragBox) {
+    const p = canvasToImage(e);
+    boxEndX = p.x;
+    boxEndY = p.y;
+    renderCanvas();
+  }
 });
 
-window.addEventListener('mouseup', () => {
+window.addEventListener('mouseup', async () => {
   if (dragPan) {
     dragPan = false;
     cv.style.cursor = 'crosshair';
+    return;
+  }
+  if (dragBox) {
+    dragBox = false;
+    const x1 = Math.min(boxStartX, boxEndX);
+    const y1 = Math.min(boxStartY, boxEndY);
+    const x2 = Math.max(boxStartX, boxEndX);
+    const y2 = Math.max(boxStartY, boxEndY);
+    if ((x2 - x1) >= 2 && (y2 - y1) >= 2) {
+      await submitBox(x1, y1, x2, y2);
+    } else {
+      renderCanvas();
+    }
   }
 });
 
@@ -889,12 +1055,14 @@ window.addEventListener('keydown', async (e) => {
   if (e.key === 'ArrowLeft') return act('prev');
   if (e.key === 'n' || e.key === 'N') return act('class_next');
   if (e.key === 'p' || e.key === 'P') return act('class_prev');
+  if (e.key === 'b' || e.key === 'B') return toggleBoxMode();
   if (e.key === '+' || e.key === '=') return zoomIn();
   if (e.key === '-' || e.key === '_') return zoomOut();
   if (e.key === '0') return zoomReset();
   if (/^[1-9]$/.test(e.key)) return setClass(Number(e.key) - 1);
 });
 
+updateBoxModeButton();
 drawFrame();
 </script>
 </body>
@@ -916,6 +1084,13 @@ drawFrame();
     def api_click(data: ClickIn) -> JSONResponse:
         with session.lock:
             session.click(float(data.x), float(data.y), int(data.label))
+            out = session.state()
+        return JSONResponse(out)
+
+    @app.post("/api/box")
+    def api_box(data: BoxIn) -> JSONResponse:
+        with session.lock:
+            session.set_box(float(data.x1), float(data.y1), float(data.x2), float(data.y2))
             out = session.state()
         return JSONResponse(out)
 

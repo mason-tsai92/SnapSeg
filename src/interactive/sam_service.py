@@ -112,31 +112,55 @@ class SamEmbeddingCacheService:
 
     def predict(
         self,
-        point_coords: list[list[float]],
-        point_labels: list[int],
+        point_coords: list[list[float]] | None = None,
+        point_labels: list[int] | None = None,
+        box_xyxy: list[float] | None = None,
         multimask_output: bool = False,
     ) -> SamPrediction:
         if self._image_embeddings is None:
             raise RuntimeError("Image embeddings are not cached. Call set_image first.")
-        if len(point_coords) != len(point_labels):
-            raise ValueError("point_coords and point_labels must have same length.")
-        if not point_coords:
-            raise ValueError("At least one point is required.")
+        has_points = bool(point_coords)
+        has_box = bool(box_xyxy)
+        if not has_points and not has_box:
+            raise ValueError("At least one prompt is required (point or box).")
+        if has_points:
+            if point_labels is None:
+                raise ValueError("point_labels is required when point_coords is provided.")
+            if len(point_coords or []) != len(point_labels):
+                raise ValueError("point_coords and point_labels must have same length.")
 
-        coords_np = np.asarray(point_coords, dtype=np.float32)
-        coords_np[:, 0] = (coords_np[:, 0] + 0.5) * (float(self._reshape_w) / max(1.0, float(self._orig_w)))
-        coords_np[:, 1] = (coords_np[:, 1] + 0.5) * (float(self._reshape_h) / max(1.0, float(self._orig_h)))
-        input_points = torch.from_numpy(coords_np).to(self.device).unsqueeze(0).unsqueeze(0)
-        input_labels = torch.tensor(point_labels, dtype=torch.int64, device=self.device).unsqueeze(0).unsqueeze(0)
+        input_points: torch.Tensor | None = None
+        input_labels: torch.Tensor | None = None
+        if has_points:
+            coords_np = np.asarray(point_coords, dtype=np.float32)
+            coords_np[:, 0] = (coords_np[:, 0] + 0.5) * (float(self._reshape_w) / max(1.0, float(self._orig_w)))
+            coords_np[:, 1] = (coords_np[:, 1] + 0.5) * (float(self._reshape_h) / max(1.0, float(self._orig_h)))
+            input_points = torch.from_numpy(coords_np).to(self.device).unsqueeze(0).unsqueeze(0)
+            input_labels = torch.tensor(point_labels, dtype=torch.int64, device=self.device).unsqueeze(0).unsqueeze(0)
+
+        input_boxes: torch.Tensor | None = None
+        if has_box:
+            if box_xyxy is None or len(box_xyxy) != 4:
+                raise ValueError("box_xyxy must be [x1, y1, x2, y2].")
+            bx = np.asarray(box_xyxy, dtype=np.float32).copy()
+            bx[0] = (bx[0] + 0.5) * (float(self._reshape_w) / max(1.0, float(self._orig_w)))
+            bx[1] = (bx[1] + 0.5) * (float(self._reshape_h) / max(1.0, float(self._orig_h)))
+            bx[2] = (bx[2] + 0.5) * (float(self._reshape_w) / max(1.0, float(self._orig_w)))
+            bx[3] = (bx[3] + 0.5) * (float(self._reshape_h) / max(1.0, float(self._orig_h)))
+            input_boxes = torch.from_numpy(bx).to(self.device).unsqueeze(0).unsqueeze(0)
 
         t0 = perf_counter()
         with torch.no_grad():
-            outputs = self._model(
-                image_embeddings=self._image_embeddings,
-                input_points=input_points,
-                input_labels=input_labels,
-                multimask_output=multimask_output,
-            )
+            model_kwargs: dict[str, Any] = {
+                "image_embeddings": self._image_embeddings,
+                "multimask_output": multimask_output,
+            }
+            if input_points is not None and input_labels is not None:
+                model_kwargs["input_points"] = input_points
+                model_kwargs["input_labels"] = input_labels
+            if input_boxes is not None:
+                model_kwargs["input_boxes"] = input_boxes
+            outputs = self._model(**model_kwargs)
 
             low_res_masks = outputs.pred_masks[0, 0]  # [K, H, W]
             iou_scores = outputs.iou_scores[0, 0]  # [K]
