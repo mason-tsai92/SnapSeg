@@ -116,6 +116,7 @@ Autosave:
 
 - `main.py` - entry point
 - `interactive_web.py` - Web UI + API
+- `web/index.html` - frontend page template (HTML/CSS/JS)
 - `src/interactive/sam_service.py` - SAM service and embedding cache
 - `src/interactive/runtime.py` - prefetch + async save/autosave
 - `src/interactive/exporter.py` - COCO/YOLO export

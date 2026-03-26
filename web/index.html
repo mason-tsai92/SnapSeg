@@ -1,0 +1,530 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>SnapSeg Interactive Annotator</title>
+  <style>
+    :root { --bg:#0f1720; --card:#1b2530; --line:#2d3a48; --text:#e6eef7; --muted:#9fb2c8; --ok:#27c26c; --ng:#ff9f40; }
+    body { margin:0; background:linear-gradient(120deg,#0f1720,#121b24); color:var(--text); font-family:"Segoe UI","Helvetica Neue",Arial,sans-serif; }
+    .wrap { display:grid; grid-template-columns: 280px 1fr; gap:12px; padding:12px; height:100vh; box-sizing:border-box; }
+    .panel { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px; overflow:auto; }
+    .btn { width:100%; padding:10px; margin:6px 0; border:1px solid #3a4d62; border-radius:10px; background:#223142; color:#e6eef7; cursor:pointer; font-weight:600; }
+    .btn:hover { filter:brightness(1.08); }
+    .btn.primary { background:#1f7a4a; border-color:#2ea162; }
+    .btn.warn { background:#7a4a1f; border-color:#a16a2e; }
+    .status { font-size:13px; line-height:1.6; color:var(--muted); white-space:pre-line; }
+    .canvasWrap { background:#0d141b; border:1px solid var(--line); border-radius:14px; display:flex; align-items:center; justify-content:center; height:calc(100vh - 24px); }
+    canvas { max-width: 100%; max-height: 100%; width:auto; height:auto; border-radius:10px; cursor:crosshair; }
+    .title { font-weight:800; margin-bottom:8px; }
+    .row { display:flex; gap:8px; }
+    .row .btn { margin:6px 0; }
+    select { width:100%; padding:8px; border-radius:8px; background:#182430; color:#e6eef7; border:1px solid #33485f; }
+    .loadingOverlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(8, 12, 18, 0.66);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      backdrop-filter: blur(2px);
+    }
+    .loadingCard {
+      min-width: 280px;
+      padding: 18px 20px;
+      border-radius: 14px;
+      border: 1px solid #3b4f62;
+      background: #162331;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+      text-align: center;
+    }
+    .spinner {
+      width: 28px;
+      height: 28px;
+      border: 3px solid #3f5569;
+      border-top: 3px solid #4fbf84;
+      border-radius: 50%;
+      margin: 0 auto 12px auto;
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div id="loadingOverlay" class="loadingOverlay">
+    <div class="loadingCard">
+      <div class="spinner"></div>
+      <div id="loadingText">Loading...</div>
+    </div>
+  </div>
+  <div class="wrap">
+    <div class="panel">
+      <div class="title">SnapSeg Interactive Annotator</div>
+      <div style="margin-bottom:6px;">Select a source folder or a single image:</div>
+      <input id="sourcePath" type="text" readonly style="width:100%;padding:10px;border-radius:10px;background:#182430;color:#e6eef7;border:1px solid #33485f;" placeholder="Pick a folder or image path">
+      <div class="row">
+        <button class="btn" onclick="pickFolder()">Pick Folder</button>
+        <button class="btn" onclick="pickImage()">Pick Image</button>
+      </div>
+      <div style="margin-top:8px;margin-bottom:6px;">Annotation Classes (comma-separated)</div>
+      <input id="classInput" type="text" style="width:100%;padding:10px;border-radius:10px;background:#182430;color:#e6eef7;border:1px solid #33485f;" placeholder="scratch,particle,stain">
+      <button class="btn primary" onclick="applyConfig()">Load Source</button>
+      <button class="btn primary" onclick="act('save')">S Save Current Image</button>
+      <button class="btn" onclick="act('confirm')">Enter Confirm Current Instance</button>
+      <div class="row">
+        <button class="btn" onclick="act('prev')">Previous</button>
+        <button class="btn" onclick="act('next')">Next</button>
+      </div>
+      <div class="row">
+        <input id="gotoIdx" type="number" min="1" step="1" style="flex:1;padding:10px;border-radius:10px;background:#182430;color:#e6eef7;border:1px solid #33485f;" placeholder="Image index">
+        <button class="btn" style="width:120px" onclick="gotoImage()">Go</button>
+      </div>
+      <div class="row">
+        <button class="btn" onclick="act('undo')">U Undo Point</button>
+        <button class="btn warn" onclick="act('reset')">R Reset Current</button>
+      </div>
+      <button class="btn warn" onclick="act('undo_instance')">Backspace Undo Last Instance</button>
+      <button id="boxModeBtn" class="btn" onclick="toggleBoxMode()">B Box Mode: Off</button>
+      <div style="margin-top:8px;margin-bottom:6px;">Polygon Smoothing (epsilon)</div>
+      <input id="eps" type="range" min="0" max="0.02" step="0.0005" value="0.005" style="width:100%;">
+      <div class="row">
+        <button class="btn" onclick="applyEpsilon()">Apply Epsilon</button>
+      </div>
+      <div class="status" id="epsText"></div>
+      <div style="margin-top:8px;margin-bottom:6px;">Zoom</div>
+      <div class="row">
+        <button class="btn" onclick="zoomIn()">Zoom +</button>
+        <button class="btn" onclick="zoomOut()">Zoom -</button>
+      </div>
+      <button class="btn" onclick="zoomReset()">Reset View</button>
+      <div style="margin-top:8px;margin-bottom:6px;">Class</div>
+      <select id="classSel" onchange="setClass(this.value)"></select>
+      <div class="row">
+        <button class="btn" onclick="act('class_prev')">Prev Class</button>
+        <button class="btn" onclick="act('class_next')">Next Class</button>
+      </div>
+      <div style="margin-top:8px;margin-bottom:6px;">Confirmed Instances</div>
+      <div id="instanceList" class="status"></div>
+      <div class="status" id="status"></div>
+      <div class="status" style="margin-top:12px;">
+        Left click: positive point (+)<br/>
+        Right click: negative point (-)<br/>
+        Box mode: left drag to draw box prompt<br/>
+        Mouse wheel: zoom in/out<br/>
+        Shift + left drag: pan view<br/>
+        Hotkeys: S / Enter / Space / Left / Right / U / R / Backspace / B / N / P / 1-9 / 0 (reset zoom)
+      </div>
+    </div>
+    <div class="canvasWrap panel">
+      <canvas id="cv"></canvas>
+    </div>
+  </div>
+<script>
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const statusEl = document.getElementById('status');
+const classSel = document.getElementById('classSel');
+const epsEl = document.getElementById('eps');
+const epsText = document.getElementById('epsText');
+const gotoEl = document.getElementById('gotoIdx');
+const sourceEl = document.getElementById('sourcePath');
+const classInputEl = document.getElementById('classInput');
+const instanceListEl = document.getElementById('instanceList');
+const boxModeBtn = document.getElementById('boxModeBtn');
+const loadingOverlay = document.getElementById('loadingOverlay');
+const loadingText = document.getElementById('loadingText');
+let state = null;
+let frameImg = new Image();
+let hasFrame = false;
+let currentImageName = "";
+let viewScale = 1.0;
+let viewTx = 0.0;
+let viewTy = 0.0;
+let dragPan = false;
+let panLastX = 0.0;
+let panLastY = 0.0;
+let boxMode = false;
+let dragBox = false;
+let boxStartX = 0.0;
+let boxStartY = 0.0;
+let boxEndX = 0.0;
+let boxEndY = 0.0;
+
+function showLoading(msg) {
+  loadingText.textContent = msg || 'Loading...';
+  loadingOverlay.style.display = 'flex';
+}
+
+function hideLoading() {
+  loadingOverlay.style.display = 'none';
+}
+
+function zoomReset() {
+  viewScale = 1.0;
+  viewTx = 0.0;
+  viewTy = 0.0;
+  renderCanvas();
+}
+
+function zoomAt(cx, cy, scaleFactor) {
+  const oldScale = viewScale;
+  const newScale = Math.max(1.0, Math.min(12.0, oldScale * scaleFactor));
+  if (Math.abs(newScale - oldScale) < 1e-6) return;
+  viewTx = cx - (cx - viewTx) * (newScale / oldScale);
+  viewTy = cy - (cy - viewTy) * (newScale / oldScale);
+  viewScale = newScale;
+  renderCanvas();
+}
+
+function zoomIn() {
+  zoomAt(cv.width / 2, cv.height / 2, 1.2);
+}
+
+function zoomOut() {
+  zoomAt(cv.width / 2, cv.height / 2, 1.0 / 1.2);
+}
+
+function updateBoxModeButton() {
+  boxModeBtn.textContent = `B Box Mode: ${boxMode ? 'On' : 'Off'}`;
+  boxModeBtn.style.borderColor = boxMode ? '#2ea162' : '#3a4d62';
+}
+
+function toggleBoxMode() {
+  boxMode = !boxMode;
+  dragBox = false;
+  updateBoxModeButton();
+}
+
+function canvasToImage(e) {
+  const rect = cv.getBoundingClientRect();
+  const cx = (e.clientX - rect.left) * (cv.width / rect.width);
+  const cy = (e.clientY - rect.top) * (cv.height / rect.height);
+  const imgX = (cx - viewTx) / viewScale;
+  const imgY = (cy - viewTy) / viewScale;
+  const x = Math.max(0, Math.min(state.width - 1, imgX));
+  const y = Math.max(0, Math.min(state.height - 1, imgY));
+  return { x, y };
+}
+
+function renderCanvas() {
+  if (!hasFrame || !state) return;
+  if (!state.ready) {
+    cv.width = 1280;
+    cv.height = 720;
+    const g = ctx.createLinearGradient(0, 0, cv.width, cv.height);
+    g.addColorStop(0, '#122131');
+    g.addColorStop(1, '#0f1720');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.fillStyle = '#dbe9f7';
+    ctx.font = '700 34px "Segoe UI","Helvetica Neue",Arial,sans-serif';
+    ctx.fillText('SnapSeg Interactive Annotation', 72, 180);
+    ctx.font = '500 20px "Segoe UI","Helvetica Neue",Arial,sans-serif';
+    ctx.fillStyle = '#9fb2c8';
+    ctx.fillText('1. Pick a source folder or image on the left panel', 72, 240);
+    ctx.fillText('2. Set classes (comma-separated), then click "Load Source"', 72, 280);
+    ctx.fillText('3. Click on defects/objects to start interactive annotation', 72, 320);
+    ctx.strokeStyle = '#35506a';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(60, 120, 760, 260);
+    return;
+  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  ctx.setTransform(viewScale, 0, 0, viewScale, viewTx, viewTy);
+  ctx.drawImage(frameImg, 0, 0, state.width, state.height);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (dragBox) {
+    const x = Math.min(boxStartX, boxEndX);
+    const y = Math.min(boxStartY, boxEndY);
+    const w = Math.abs(boxEndX - boxStartX);
+    const h = Math.abs(boxEndY - boxStartY);
+    ctx.setTransform(viewScale, 0, 0, viewScale, viewTx, viewTy);
+    ctx.lineWidth = 2.0 / Math.max(0.01, viewScale);
+    ctx.strokeStyle = '#ffe066';
+    ctx.strokeRect(x, y, w, h);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+  }
+}
+
+function renderInstanceList() {
+  if (!state || !state.ready || !state.instances_detail || state.instances_detail.length === 0) {
+    instanceListEl.innerHTML = 'No confirmed instances yet.';
+    return;
+  }
+  const rows = state.instances_detail.map((it) => {
+    const idx = Number(it.index) + 1;
+    const label = String(it.label || 'object');
+    const score = Number(it.score || 0).toFixed(4);
+    return (
+      `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0;">` +
+      `<span>#${idx} ${label} (score ${score})</span>` +
+      `<button class="btn warn" style="width:84px;margin:0;padding:6px 8px;" onclick="deleteInstance(${Number(it.index)})">Delete</button>` +
+      `</div>`
+    );
+  });
+  instanceListEl.innerHTML = rows.join('');
+}
+
+async function getState() {
+  const res = await fetch('/api/state');
+  state = await res.json();
+  classSel.innerHTML = '';
+  state.class_list.forEach((c, i) => {
+    const op = document.createElement('option');
+    op.value = i;
+    op.textContent = `${i+1}. ${c}`;
+    if (i === state.class_idx) op.selected = true;
+    classSel.appendChild(op);
+  });
+  statusEl.textContent =
+    `Image: ${state.image_index}/${state.image_total} (${state.image_name})\\n` +
+    `Class: ${state.class_list[state.class_idx]}  |  Instances: ${state.instances}  |  Box Prompt: ${state.has_box_prompt}\\n` +
+    `Backend(requested/effective): ${state.backend_requested} / ${state.backend}  |  Model: ${state.model_id}\\n` +
+    (state.backend_warning ? `Backend warning: ${state.backend_warning}\\n` : '') +
+    `Points: ${state.points}  |  Score: ${state.score}  |  Decoder: ${state.latency_ms} ms\\n` +
+    `Save Queue: ${state.save_queue}  |  Autosave Queue: ${state.autosave_queue}\\n` +
+    `Prefetch Free VRAM: ${state.prefetch_free_gb} GB\\n` +
+    `Prefetch Paused(<2GB): ${state.prefetch_paused_low_vram}\\n` +
+    `Autosave: ${state.autosave}\\n` +
+    `Zoom: ${viewScale.toFixed(2)}x  |  Mode: ${boxMode ? 'Box' : 'Point'}`;
+  epsEl.value = Number(state.polygon_epsilon_ratio || 0.005);
+  epsText.textContent = `Current epsilon: ${Number(state.polygon_epsilon_ratio || 0.005).toFixed(4)}`;
+  gotoEl.max = String(state.image_total);
+  gotoEl.placeholder = `1 ~ ${state.image_total}`;
+  if (state.source_path) sourceEl.value = state.source_path;
+  const activeTag = (document.activeElement && document.activeElement.tagName) ? document.activeElement.tagName.toUpperCase() : "";
+  const editingClassInput = (document.activeElement === classInputEl);
+  if (!editingClassInput && state.class_list && state.class_list.length > 0) {
+    classInputEl.value = state.class_list.join(',');
+  }
+  renderInstanceList();
+}
+
+async function drawFrame() {
+  await getState();
+  if (!state.ready) {
+    hasFrame = true;
+    renderCanvas();
+    return;
+  }
+  if (currentImageName !== state.image_name) {
+    currentImageName = state.image_name;
+    zoomReset();
+  }
+  frameImg = new Image();
+  frameImg.onload = () => {
+    cv.width = state.width;
+    cv.height = state.height;
+    hasFrame = true;
+    renderCanvas();
+  };
+  frameImg.src = `/api/frame?ts=${Date.now()}`;
+}
+
+async function act(action) {
+  if (!state || !state.ready) return;
+  if (action === 'next' || action === 'prev' || action === 'goto') {
+    showLoading('Loading image...');
+  }
+  await fetch('/api/action', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action})});
+  await drawFrame();
+  hideLoading();
+}
+
+async function setClass(idx) {
+  if (!state || !state.ready) return;
+  await fetch('/api/action', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'set_class', class_idx: Number(idx)})});
+  await drawFrame();
+}
+
+async function deleteInstance(idx) {
+  if (!state || !state.ready) return;
+  await fetch('/api/action', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'delete_instance', index: Number(idx)})
+  });
+  await drawFrame();
+}
+
+async function submitBox(x1, y1, x2, y2) {
+  if (!state || !state.ready) return;
+  await fetch('/api/box', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({x1, y1, x2, y2})
+  });
+  await drawFrame();
+}
+
+async function applyEpsilon() {
+  if (!state || !state.ready) return;
+  const v = Number(epsEl.value);
+  await fetch('/api/action', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'set_epsilon', epsilon: v})
+  });
+  await drawFrame();
+}
+
+async function gotoImage() {
+  if (!state || !state.ready) return;
+  const idx = Number(gotoEl.value);
+  if (!Number.isFinite(idx)) return;
+  showLoading('Jumping to image...');
+  await fetch('/api/action', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'goto', index: Math.round(idx)})
+  });
+  await drawFrame();
+  hideLoading();
+}
+
+async function applyConfig() {
+  const source_path = sourceEl.value.trim();
+  const classes = classInputEl.value.trim();
+  if (!source_path) {
+    statusEl.textContent = "Please pick a folder/image path first.";
+    return;
+  }
+  showLoading('Loading source and preparing SAM embeddings...');
+  const res = await fetch('/api/config', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({source_path, classes})
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({detail:"unknown error"}));
+    statusEl.textContent = `Error: ${err.detail || 'unknown error'}`;
+    hideLoading();
+    return;
+  }
+  await drawFrame();
+  hideLoading();
+}
+
+async function pickFolder() {
+  const res = await fetch('/api/pick-folder', { method: 'POST' });
+  if (!res.ok) return;
+  const data = await res.json();
+  if (data.path) sourceEl.value = data.path;
+}
+
+async function pickImage() {
+  const res = await fetch('/api/pick-image', { method: 'POST' });
+  if (!res.ok) return;
+  const data = await res.json();
+  if (data.path) sourceEl.value = data.path;
+}
+
+cv.addEventListener('contextmenu', (e) => e.preventDefault());
+cv.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  if (!state) return;
+  const rect = cv.getBoundingClientRect();
+  const cx = (e.clientX - rect.left) * (cv.width / rect.width);
+  const cy = (e.clientY - rect.top) * (cv.height / rect.height);
+  const factor = e.deltaY < 0 ? 1.15 : 1.0 / 1.15;
+  zoomAt(cx, cy, factor);
+}, { passive: false });
+
+cv.addEventListener('mousedown', async (e) => {
+  if (!state || !state.ready) return;
+  if (e.button === 0 && e.shiftKey) {
+    dragPan = true;
+    panLastX = e.clientX;
+    panLastY = e.clientY;
+    cv.style.cursor = 'grabbing';
+    return;
+  }
+  if (boxMode && e.button === 0) {
+    const p = canvasToImage(e);
+    dragBox = true;
+    boxStartX = p.x;
+    boxStartY = p.y;
+    boxEndX = p.x;
+    boxEndY = p.y;
+    renderCanvas();
+    return;
+  }
+  const p = canvasToImage(e);
+  const x = p.x;
+  const y = p.y;
+  const label = (e.button === 2) ? 0 : 1;
+  await fetch('/api/click', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({x, y, label})});
+  await drawFrame();
+});
+
+cv.addEventListener('mousemove', async (e) => {
+  if (dragPan) {
+    const dx = (e.clientX - panLastX) * (cv.width / cv.getBoundingClientRect().width);
+    const dy = (e.clientY - panLastY) * (cv.height / cv.getBoundingClientRect().height);
+    panLastX = e.clientX;
+    panLastY = e.clientY;
+    viewTx += dx;
+    viewTy += dy;
+    renderCanvas();
+    return;
+  }
+  if (dragBox) {
+    const p = canvasToImage(e);
+    boxEndX = p.x;
+    boxEndY = p.y;
+    renderCanvas();
+  }
+});
+
+window.addEventListener('mouseup', async () => {
+  if (dragPan) {
+    dragPan = false;
+    cv.style.cursor = 'crosshair';
+    return;
+  }
+  if (dragBox) {
+    dragBox = false;
+    const x1 = Math.min(boxStartX, boxEndX);
+    const y1 = Math.min(boxStartY, boxEndY);
+    const x2 = Math.max(boxStartX, boxEndX);
+    const y2 = Math.max(boxStartY, boxEndY);
+    if ((x2 - x1) >= 2 && (y2 - y1) >= 2) {
+      await submitBox(x1, y1, x2, y2);
+    } else {
+      renderCanvas();
+    }
+  }
+});
+
+window.addEventListener('keydown', async (e) => {
+  const tag = (document.activeElement && document.activeElement.tagName) ? document.activeElement.tagName.toUpperCase() : "";
+  const isTypingContext = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+  if (isTypingContext) return;
+  if (e.key === 's' || e.key === 'S') return act('save');
+  if (e.key === 'Enter') return act('confirm');
+  if (e.key === 'u' || e.key === 'U') return act('undo');
+  if (e.key === 'Backspace') { e.preventDefault(); return act('undo_instance'); }
+  if (e.key === 'r' || e.key === 'R') return act('reset');
+  if (e.key === ' ') { e.preventDefault(); return act('next'); }
+  if (e.key === 'ArrowRight') return act('next');
+  if (e.key === 'ArrowLeft') return act('prev');
+  if (e.key === 'n' || e.key === 'N') return act('class_next');
+  if (e.key === 'p' || e.key === 'P') return act('class_prev');
+  if (e.key === 'b' || e.key === 'B') return toggleBoxMode();
+  if (e.key === '+' || e.key === '=') return zoomIn();
+  if (e.key === '-' || e.key === '_') return zoomOut();
+  if (e.key === '0') return zoomReset();
+  if (/^[1-9]$/.test(e.key)) return setClass(Number(e.key) - 1);
+});
+
+updateBoxModeButton();
+drawFrame();
+</script>
+</body>
+</html>

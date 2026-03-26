@@ -115,6 +115,7 @@ python main.py --backend mobile_sam --model-id <huggingface_model_id>
 
 - `main.py` - 啟動入口
 - `interactive_web.py` - Web UI + API
+- `web/index.html` - 前端頁面模板（HTML/CSS/JS）
 - `src/interactive/sam_service.py` - SAM 服務與 embedding 快取
 - `src/interactive/runtime.py` - 預載 + 非同步存檔/暫存
 - `src/interactive/exporter.py` - COCO/YOLO 匯出
