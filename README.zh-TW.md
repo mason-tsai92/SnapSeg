@@ -6,7 +6,7 @@
 
 ## Demo
 
-![SnapSeg Demo](docs/demo.gif)
+![SnapSeg Demo](docs/demo_v2.gif)
 
 ## 功能
 
@@ -134,3 +134,4 @@ python main.py --backend mobile_sam --model-id <huggingface_model_id>
 ## 授權
 
 MIT，詳見 [LICENSE](LICENSE)。
+
