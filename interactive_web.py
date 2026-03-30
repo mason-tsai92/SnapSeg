@@ -873,6 +873,10 @@ class AnnotatorSession:
                 self.points.pop()
                 self.point_labels.pop()
                 self._run_predict()
+            elif self.current_box is not None:
+                # In box mode, allow undo to clear the latest box prompt.
+                self.current_box = None
+                self._run_predict()
         elif action == "reset":
             self.points.clear()
             self.point_labels.clear()
