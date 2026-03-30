@@ -16,6 +16,7 @@ Interactive image segmentation powered by SAM - click to segment, export to COCO
 ## Why SnapSeg
 
 - **Point-and-click segmentation** - positive/negative prompts with real-time mask preview
+- **Two annotation paths** - use bbox prompt for fast object capture, or brush-only editing for tiny defects
 - **Built for speed** - embedding cache + next-image prefetch keeps interaction responsive
 - **Multi-instance, multi-class** - annotate complex scenes in one web session
 - **Ready to train** - export directly to COCO JSON or YOLO segmentation format
@@ -43,6 +44,18 @@ python main.py --backend mobile_sam --model-id <huggingface_model_id>
 2. Set class names (comma-separated)
 3. Click **Load Source**
 4. Left-click include, right-click exclude, `Enter` confirm, `S` save
+
+### Brush Edit Mode
+
+- Press `E` to toggle brush edit mode for the current mask
+- Drag **left mouse** to add mask area, drag **right mouse** to erase
+- Use `[` / `]` to decrease/increase brush radius
+- Press `T` to revert edited mask back to the SAM prediction
+
+### BBox Or Brush-Only
+
+- Press `B` and drag a box to segment by bbox prompt
+- For tiny defects, you can skip bbox/points and use brush mode directly to paint the target area
 
 More details:
 
