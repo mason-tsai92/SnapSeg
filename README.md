@@ -55,6 +55,8 @@ More details:
 outputs/<run>/<image_stem>/
   annotations_coco.json
   labels_yolo_seg/*.txt
+  labels_yolo_bbox/*.txt
+  classes_yolo_bbox.txt
   *_mask_*.png
 
 outputs/<run>/autosave/

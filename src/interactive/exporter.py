@@ -14,6 +14,7 @@ class MaskAnnotation:
     category_name: str
     mask: np.ndarray
     score: float = 1.0
+    bbox_xywh: list[float] | None = None
 
 
 class AnnotationExporter:
@@ -52,6 +53,18 @@ class AnnotationExporter:
         x2, y2 = float(xs.max()), float(ys.max())
         return [x1, y1, x2 - x1 + 1.0, y2 - y1 + 1.0]
 
+    @staticmethod
+    def _sanitize_bbox_xywh(bbox: list[float] | None) -> list[float] | None:
+        if bbox is None or len(bbox) != 4:
+            return None
+        try:
+            x, y, w, h = [float(v) for v in bbox]
+        except Exception:
+            return None
+        if w <= 0.0 or h <= 0.0:
+            return None
+        return [x, y, w, h]
+
     def export_coco(self, annotations: list[MaskAnnotation], output_json: Path) -> None:
         output_json.parent.mkdir(parents=True, exist_ok=True)
         categories: dict[str, int] = {}
@@ -62,8 +75,7 @@ class AnnotationExporter:
 
         for ann in annotations:
             if ann.image_path not in image_id_by_path:
-                img = cv2.imread(str(ann.image_path), cv2.IMREAD_COLOR)
-                h, w = img.shape[:2]
+                h, w = ann.mask.shape[:2]
                 iid = len(image_id_by_path) + 1
                 image_id_by_path[ann.image_path] = iid
                 images.append({"id": iid, "file_name": ann.image_path.name, "width": w, "height": h})
@@ -72,7 +84,7 @@ class AnnotationExporter:
                 categories[ann.category_name] = len(categories) + 1
             cat_id = categories[ann.category_name]
 
-            bbox = self._bbox_xywh(ann.mask)
+            bbox = self._sanitize_bbox_xywh(ann.bbox_xywh) or self._bbox_xywh(ann.mask)
             area = float((ann.mask > 0).sum())
             polygons = self._mask_to_polygons(ann.mask)
             anns.append(
@@ -107,10 +119,9 @@ class AnnotationExporter:
                 class_map[ann.category_name] = len(class_map)
 
         for img_path, items in by_image.items():
-            img = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
-            h, w = img.shape[:2]
             lines: list[str] = []
             for ann in items:
+                h, w = ann.mask.shape[:2]
                 cls_id = class_map[ann.category_name]
                 polygons = self._mask_to_polygons(ann.mask)
                 for poly in polygons:
@@ -119,6 +130,33 @@ class AnnotationExporter:
                         coords.extend([f"{poly[i] / w:.6f}", f"{poly[i + 1] / h:.6f}"])
                     if len(coords) >= 6:
                         lines.append(f"{cls_id} " + " ".join(coords))
+            (labels_dir / f"{img_path.stem}.txt").write_text("\n".join(lines), encoding="utf-8")
+
+        classes = sorted(class_map.items(), key=lambda kv: kv[1])
+        class_names_path.parent.mkdir(parents=True, exist_ok=True)
+        class_names_path.write_text("\n".join([name for name, _ in classes]), encoding="utf-8")
+
+    def export_yolo_bbox(self, annotations: list[MaskAnnotation], labels_dir: Path, class_names_path: Path) -> None:
+        labels_dir.mkdir(parents=True, exist_ok=True)
+        class_map: dict[str, int] = {}
+        by_image: dict[Path, list[MaskAnnotation]] = {}
+        for ann in annotations:
+            by_image.setdefault(ann.image_path, []).append(ann)
+            if ann.category_name not in class_map:
+                class_map[ann.category_name] = len(class_map)
+
+        for img_path, items in by_image.items():
+            lines: list[str] = []
+            for ann in items:
+                h, w = ann.mask.shape[:2]
+                cls_id = class_map[ann.category_name]
+                bbox = self._sanitize_bbox_xywh(ann.bbox_xywh) or self._bbox_xywh(ann.mask)
+                x, y, bw, bh = bbox
+                cx = (x + (bw / 2.0)) / float(max(1, w))
+                cy = (y + (bh / 2.0)) / float(max(1, h))
+                nw = bw / float(max(1, w))
+                nh = bh / float(max(1, h))
+                lines.append(f"{cls_id} {cx:.6f} {cy:.6f} {nw:.6f} {nh:.6f}")
             (labels_dir / f"{img_path.stem}.txt").write_text("\n".join(lines), encoding="utf-8")
 
         classes = sorted(class_map.items(), key=lambda kv: kv[1])

@@ -116,9 +116,12 @@ class ConfigIn(BaseModel):
     classes: str = ""
 
 
+InstanceRecord = tuple[str, np.ndarray, float, list[float] | None]
+
+
 @dataclass
 class ImageSessionState:
-    instances: list[tuple[str, np.ndarray, float]]
+    instances: list[InstanceRecord]
     is_dirty: bool = False
     visited: bool = False
     flagged: bool = False
@@ -177,6 +180,26 @@ class AnnotatorSession:
         bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)[0, 0]
         return int(bgr[0]), int(bgr[1]), int(bgr[2])
 
+    @staticmethod
+    def _mask_bbox_xywh(mask: np.ndarray) -> list[float]:
+        ys, xs = np.where(mask > 0)
+        if len(xs) == 0 or len(ys) == 0:
+            return [0.0, 0.0, 0.0, 0.0]
+        x1, y1 = float(xs.min()), float(ys.min())
+        x2, y2 = float(xs.max()), float(ys.max())
+        return [x1, y1, x2 - x1 + 1.0, y2 - y1 + 1.0]
+
+    @staticmethod
+    def _box_xyxy_to_xywh(box_xyxy: tuple[float, float, float, float] | None) -> list[float] | None:
+        if box_xyxy is None:
+            return None
+        x1, y1, x2, y2 = [float(v) for v in box_xyxy]
+        w = max(0.0, x2 - x1 + 1.0)
+        h = max(0.0, y2 - y1 + 1.0)
+        if w <= 0.0 or h <= 0.0:
+            return None
+        return [x1, y1, w, h]
+
     @property
     def current_image(self) -> Path:
         return self.images[self.current_idx]
@@ -188,7 +211,7 @@ class AnnotatorSession:
     def _image_state(self) -> ImageSessionState:
         return self.states[str(self.current_image)]
 
-    def _instances(self) -> list[tuple[str, np.ndarray, float]]:
+    def _instances(self) -> list[InstanceRecord]:
         return self._image_state().instances
 
     def _image_key(self, image: Path) -> str:
@@ -276,7 +299,7 @@ class AnnotatorSession:
         if self.restore_flags:
             st.flagged = self._parse_flagged_value(payload.get("flagged", False))
 
-        restored: list[tuple[str, np.ndarray, float]] = []
+        restored: list[InstanceRecord] = []
         h, w = self.service.image_rgb.shape[:2]
         for item in items:
             if not isinstance(item, dict):
@@ -302,7 +325,16 @@ class AnnotatorSession:
             mask_bin = (mask_img > 0).astype(np.uint8)
             if int(mask_bin.sum()) == 0:
                 continue
-            restored.append((label_name, mask_bin, score))
+            bbox_override: list[float] | None = None
+            bbox_raw = item.get("bbox_xywh")
+            if isinstance(bbox_raw, list) and len(bbox_raw) == 4:
+                try:
+                    bx, by, bw, bh = [float(v) for v in bbox_raw]
+                    if bw > 0.0 and bh > 0.0:
+                        bbox_override = [bx, by, bw, bh]
+                except Exception:
+                    bbox_override = None
+            restored.append((label_name, mask_bin, score, bbox_override))
 
         if restored:
             st.instances = restored
@@ -379,16 +411,10 @@ class AnnotatorSession:
             "flagged": bool(st.flagged),
             "instances": [],
         }
-        for i, (label_name, m, score) in enumerate(self._instances()):
+        for i, (label_name, m, score, bbox_override) in enumerate(self._instances()):
             mask_path = self._autosave_mask_path(self.current_image, i, label_name)
             cv2.imwrite(str(mask_path), (m.astype(np.uint8) * 255))
-            ys, xs = np.where(m > 0)
-            if len(xs) == 0 or len(ys) == 0:
-                bbox = [0, 0, 0, 0]
-            else:
-                x1, y1 = int(xs.min()), int(ys.min())
-                x2, y2 = int(xs.max()), int(ys.max())
-                bbox = [x1, y1, x2 - x1 + 1, y2 - y1 + 1]
+            bbox = bbox_override if bbox_override is not None else self._mask_bbox_xywh(m)
             payload["instances"].append(
                 {
                     "index": i,
@@ -451,7 +477,15 @@ class AnnotatorSession:
             return False
         if self.current_mask is None:
             return False
-        self._instances().append((self.class_list[self.class_idx], self.current_mask.astype(np.uint8), float(self.last_score)))
+        bbox_override = self._box_xyxy_to_xywh(self.current_box)
+        self._instances().append(
+            (
+                self.class_list[self.class_idx],
+                self.current_mask.astype(np.uint8),
+                float(self.last_score),
+                bbox_override,
+            )
+        )
         self._image_state().is_dirty = True
         self.points.clear()
         self.point_labels.clear()
@@ -580,13 +614,14 @@ class AnnotatorSession:
             return False
         image_out = self.out_dir / self.current_image.stem
         anns: list[MaskAnnotation] = []
-        for label_name, m, score in inst:
+        for label_name, m, score, bbox_override in inst:
             anns.append(
                 MaskAnnotation(
                     image_path=self.current_image,
                     category_name=label_name,
                     mask=m.astype(np.uint8).copy(),
                     score=score,
+                    bbox_xywh=bbox_override.copy() if bbox_override is not None else None,
                 )
             )
         self.save_manager.submit(
@@ -676,7 +711,7 @@ class AnnotatorSession:
                 raise RuntimeError("Frame encode failed")
             return enc.tobytes()
         view = self.base_bgr.copy()
-        for label_name, m, _ in self._instances():
+        for label_name, m, _, _ in self._instances():
             color = np.zeros_like(view)
             cb, cg, cr = self._label_color_bgr(label_name)
             color[:, :, 0] = cb
@@ -740,7 +775,7 @@ class AnnotatorSession:
                 "score": round(float(score), 4),
                 "color_bgr": list(self._label_color_bgr(label_name)),
             }
-            for i, (label_name, _, score) in enumerate(self._instances())
+            for i, (label_name, _, score, _) in enumerate(self._instances())
         ]
         return {
             "ready": True,

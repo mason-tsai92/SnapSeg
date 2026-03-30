@@ -126,6 +126,7 @@ class AsyncSaveManager:
                 exp = AnnotationExporter(polygon_epsilon_ratio=task.polygon_epsilon_ratio)
                 exp.export_coco(task.annotations, task.image_out / "annotations_coco.json")
                 exp.export_yolo_seg(task.annotations, task.image_out / "labels_yolo_seg", task.image_out / "classes_yolo_seg.txt")
+                exp.export_yolo_bbox(task.annotations, task.image_out / "labels_yolo_bbox", task.image_out / "classes_yolo_bbox.txt")
             finally:
                 self._q.task_done()
 
