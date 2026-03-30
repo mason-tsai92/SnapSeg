@@ -117,7 +117,14 @@ class ConfigIn(BaseModel):
     classes: str = ""
 
 
-InstanceRecord = tuple[str, np.ndarray, float, list[float] | None]
+@dataclass
+class InstanceRecord:
+    label: str
+    mask: np.ndarray
+    score: float
+    bbox_source: Literal["box_prompt", "mask_auto", "brush"] = "mask_auto"
+    bbox_override: list[float] | None = None
+    brush_radius: float | None = None
 
 
 @dataclass
@@ -160,6 +167,10 @@ class AnnotatorSession:
         self.current_box: tuple[float, float, float, float] | None = None
         self.sam_mask: np.ndarray | None = None
         self.current_mask: np.ndarray | None = None
+        self.current_mask_source: Literal["box_prompt", "mask_auto", "brush"] | None = None
+        self.current_brush_radius: float | None = None
+        self._last_brush_xy: tuple[int, int] | None = None
+        self._last_brush_erase: bool | None = None
         self.embedding_loaded_for: Path | None = None
         self.embedding_status = "idle"
         self.embedding_error = ""
@@ -348,7 +359,24 @@ class AnnotatorSession:
                         bbox_override = [bx, by, bw, bh]
                 except Exception:
                     bbox_override = None
-            restored.append((label_name, mask_bin, score, bbox_override))
+            bbox_source_raw = str(item.get("bbox_source", "mask_auto")).strip().lower()
+            if bbox_source_raw not in {"box_prompt", "mask_auto", "brush"}:
+                bbox_source_raw = "mask_auto"
+            brush_radius = item.get("brush_radius")
+            try:
+                brush_radius_f = float(brush_radius) if brush_radius is not None else None
+            except Exception:
+                brush_radius_f = None
+            restored.append(
+                InstanceRecord(
+                    label=label_name,
+                    mask=mask_bin,
+                    score=score,
+                    bbox_source=bbox_source_raw,  # type: ignore[arg-type]
+                    bbox_override=bbox_override,
+                    brush_radius=brush_radius_f,
+                )
+            )
 
         if restored:
             st.instances = restored
@@ -438,6 +466,10 @@ class AnnotatorSession:
         self.current_box = None
         self.sam_mask = None
         self.current_mask = None
+        self.current_mask_source = None
+        self.current_brush_radius = None
+        self._last_brush_xy = None
+        self._last_brush_erase = None
         self.last_latency_ms = 0.0
         self.last_score = 0.0
         self._restore_autosave_for_current_image()
@@ -558,15 +590,17 @@ class AnnotatorSession:
             "instances": [],
         }
         masks_to_write: list[tuple[Path, np.ndarray]] = []
-        for i, (label_name, m, score, bbox_override) in enumerate(self._instances()):
-            mask_path = self._autosave_mask_path(self.current_image, i, label_name)
-            masks_to_write.append((mask_path, (m.astype(np.uint8) * 255).copy()))
-            bbox = bbox_override if bbox_override is not None else self._mask_bbox_xywh(m)
+        for i, inst in enumerate(self._instances()):
+            mask_path = self._autosave_mask_path(self.current_image, i, inst.label)
+            masks_to_write.append((mask_path, (inst.mask.astype(np.uint8) * 255).copy()))
+            bbox = inst.bbox_override if inst.bbox_override is not None else self._mask_bbox_xywh(inst.mask)
             payload["instances"].append(
                 {
                     "index": i,
-                    "label": label_name,
-                    "score": float(score),
+                    "label": inst.label,
+                    "score": float(inst.score),
+                    "bbox_source": inst.bbox_source,
+                    "brush_radius": inst.brush_radius,
                     "bbox_xywh": bbox,
                     "mask_path": str(mask_path),
                 }
@@ -597,6 +631,10 @@ class AnnotatorSession:
         mask_u8 = (pred.mask > 0).astype(np.uint8)
         self.sam_mask = mask_u8
         self.current_mask = mask_u8.copy()
+        self.current_mask_source = "box_prompt" if self.current_box is not None else "mask_auto"
+        self.current_brush_radius = None
+        self._last_brush_xy = None
+        self._last_brush_erase = None
         self.last_latency_ms = pred.latency_ms
         self.last_score = pred.score
         return True
@@ -604,6 +642,8 @@ class AnnotatorSession:
     def click(self, x: float, y: float, label: int) -> bool:
         if not self.has_images:
             return False
+        self._last_brush_xy = None
+        self._last_brush_erase = None
         self.points.append((x, y))
         self.point_labels.append(1 if label > 0 else 0)
         self._image_state().is_dirty = True
@@ -617,6 +657,8 @@ class AnnotatorSession:
             return False
         if self.base_bgr is None:
             return False
+        self._last_brush_xy = None
+        self._last_brush_erase = None
         h, w = self.base_bgr.shape[:2]
         lx = float(max(0.0, min(float(w - 1), min(x1, x2))))
         rx = float(max(0.0, min(float(w - 1), max(x1, x2))))
@@ -636,13 +678,16 @@ class AnnotatorSession:
             return False
         if self.current_mask is None:
             return False
-        bbox_override = self._box_xyxy_to_xywh(self.current_box)
+        source = self.current_mask_source or ("box_prompt" if self.current_box is not None else "mask_auto")
+        bbox_override = self._box_xyxy_to_xywh(self.current_box) if source == "box_prompt" else None
         self._instances().append(
-            (
-                self.class_list[self.class_idx],
-                self.current_mask.astype(np.uint8),
-                float(self.last_score),
-                bbox_override,
+            InstanceRecord(
+                label=self.class_list[self.class_idx],
+                mask=self.current_mask.astype(np.uint8),
+                score=float(self.last_score),
+                bbox_source=source,
+                bbox_override=bbox_override,
+                brush_radius=self.current_brush_radius,
             )
         )
         self._image_state().is_dirty = True
@@ -651,6 +696,10 @@ class AnnotatorSession:
         self.current_box = None
         self.sam_mask = None
         self.current_mask = None
+        self.current_mask_source = None
+        self.current_brush_radius = None
+        self._last_brush_xy = None
+        self._last_brush_erase = None
         self.last_score = 0.0
         self.last_latency_ms = 0.0
         self._write_autosave_if_dirty()
@@ -659,18 +708,31 @@ class AnnotatorSession:
     def brush(self, x: float, y: float, radius: int, erase: bool) -> bool:
         if not self.has_images:
             return False
-        if self.current_mask is None:
-            return False
         if self.base_bgr is None:
             return False
         h, w = self.base_bgr.shape[:2]
         cx = int(max(0, min(w - 1, round(float(x)))))
         cy = int(max(0, min(h - 1, round(float(y)))))
         rr = int(max(1, min(128, int(radius))))
+        if self.current_mask is None:
+            if erase:
+                return False
+            self.current_mask = np.zeros((h, w), dtype=np.uint8)
+            self.sam_mask = None
+            self.current_mask_source = "brush"
+            self.current_brush_radius = float(rr)
         target = self.current_mask.astype(np.uint8).copy()
         value = 0 if erase else 1
+        if self._last_brush_xy is not None and self._last_brush_erase == erase:
+            cv2.line(target, self._last_brush_xy, (cx, cy), color=value, thickness=max(1, rr * 2), lineType=cv2.LINE_AA)
         cv2.circle(target, (cx, cy), rr, color=value, thickness=-1, lineType=cv2.LINE_AA)
         self.current_mask = target
+        if self.current_mask_source is None:
+            self.current_mask_source = "brush"
+        if self.current_mask_source == "brush":
+            self.current_brush_radius = float(rr)
+        self._last_brush_xy = (cx, cy)
+        self._last_brush_erase = erase
         self._image_state().is_dirty = True
         return True
 
@@ -775,14 +837,14 @@ class AnnotatorSession:
             return False
         image_out = self.out_dir / self.current_image.stem
         anns: list[MaskAnnotation] = []
-        for label_name, m, score, bbox_override in inst:
+        for item in inst:
             anns.append(
                 MaskAnnotation(
                     image_path=self.current_image,
-                    category_name=label_name,
-                    mask=m.astype(np.uint8).copy(),
-                    score=score,
-                    bbox_xywh=bbox_override.copy() if bbox_override is not None else None,
+                    category_name=item.label,
+                    mask=item.mask.astype(np.uint8).copy(),
+                    score=item.score,
+                    bbox_xywh=item.bbox_override.copy() if item.bbox_override is not None else None,
                 )
             )
         self.save_manager.submit(
@@ -816,6 +878,11 @@ class AnnotatorSession:
             self.point_labels.clear()
             self.current_box = None
             self.current_mask = None
+            self.sam_mask = None
+            self.current_mask_source = None
+            self.current_brush_radius = None
+            self._last_brush_xy = None
+            self._last_brush_erase = None
             self.last_score = 0.0
             self.last_latency_ms = 0.0
             # If there is no confirmed label, reset means clean state.
@@ -858,6 +925,10 @@ class AnnotatorSession:
         elif action == "revert_mask":
             if self.sam_mask is not None:
                 self.current_mask = self.sam_mask.copy()
+                self.current_mask_source = "box_prompt" if self.current_box is not None else "mask_auto"
+                self.current_brush_radius = None
+                self._last_brush_xy = None
+                self._last_brush_erase = None
                 self._image_state().is_dirty = True
 
     def render_frame(self, image_format: Literal["jpg", "png"] = "png") -> bytes:
@@ -872,13 +943,13 @@ class AnnotatorSession:
                 raise RuntimeError("Frame encode failed")
             return enc.tobytes()
         view = self.base_bgr.copy()
-        for label_name, m, _, _ in self._instances():
+        for inst in self._instances():
             color = np.zeros_like(view)
-            cb, cg, cr = self._label_color_bgr(label_name)
+            cb, cg, cr = self._label_color_bgr(inst.label)
             color[:, :, 0] = cb
             color[:, :, 1] = cg
             color[:, :, 2] = cr
-            mm = m.astype(bool)
+            mm = inst.mask.astype(bool)
             view[mm] = (0.74 * view[mm] + 0.26 * color[mm]).astype(np.uint8)
         if self.current_mask is not None:
             color = np.zeros_like(view)
@@ -938,11 +1009,12 @@ class AnnotatorSession:
         inst_detail = [
             {
                 "index": i,
-                "label": label_name,
-                "score": round(float(score), 4),
-                "color_bgr": list(self._label_color_bgr(label_name)),
+                "label": inst.label,
+                "score": round(float(inst.score), 4),
+                "bbox_source": inst.bbox_source,
+                "color_bgr": list(self._label_color_bgr(inst.label)),
             }
-            for i, (label_name, _, score, _) in enumerate(self._instances())
+            for i, inst in enumerate(self._instances())
         ]
         return {
             "ready": True,
