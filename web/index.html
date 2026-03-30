@@ -630,6 +630,9 @@ function renderCanvas() {
     ctx.strokeRect(60, 120, 760, 260);
     return;
   }
+  if (!frameImg || !frameImg.complete || frameImg.naturalWidth === 0) {
+    return;
+  }
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, cv.width, cv.height);
   ctx.setTransform(viewScale, 0, 0, viewScale, viewTx, viewTy);
@@ -804,12 +807,8 @@ async function drawFrame() {
 async function act(action) {
   if (!state || !state.ready) return;
   clearButtonFocus();
-  if (action === 'next' || action === 'prev' || action === 'goto') {
-    showLoading('Loading image...');
-  }
   await fetch('/api/action', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action})});
   await drawFrame();
-  hideLoading();
 }
 
 async function setClass(idx) {
@@ -892,14 +891,12 @@ async function gotoImage() {
   clearButtonFocus();
   const idx = Number(gotoEl.value);
   if (!Number.isFinite(idx)) return;
-  showLoading('Jumping to image...');
   await fetch('/api/action', {
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({action:'goto', index: Math.round(idx)})
   });
   await drawFrame();
-  hideLoading();
 }
 
 async function jumpToImage(idx) {
@@ -907,14 +904,12 @@ async function jumpToImage(idx) {
   clearButtonFocus();
   const n = Number(idx);
   if (!Number.isFinite(n)) return;
-  showLoading('Jumping to image...');
   await fetch('/api/action', {
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({action:'goto', index: Math.round(n)})
   });
   await drawFrame();
-  hideLoading();
 }
 
 async function applyConfig() {

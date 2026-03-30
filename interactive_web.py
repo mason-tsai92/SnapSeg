@@ -1009,8 +1009,9 @@ def build_app(session: AnnotatorSession) -> FastAPI:
             if index < 1 or index > len(session.images):
                 raise HTTPException(status_code=400, detail="Invalid index")
             img_path = session.images[index - 1]
-        img = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
-        if img is None:
+        try:
+            img = session._read_image_bgr(img_path)
+        except Exception:
             raise HTTPException(status_code=404, detail="Image not found")
         h, w = img.shape[:2]
         max_side = max(1, int(size))
