@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
@@ -40,6 +41,17 @@ class SamEmbeddingCacheService:
         self.model_id = model_id or self._default_model_id(backend)
         self.last_load_warning: str = ""
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        if self.device == "cpu":
+            # Keep desktop responsive when running SAM fully on CPU.
+            max_threads = max(1, (os.cpu_count() or 2) // 2)
+            try:
+                torch.set_num_threads(max_threads)
+            except Exception:
+                pass
+            try:
+                torch.set_num_interop_threads(1)
+            except Exception:
+                pass
         self._processor: Any | None = None
         self._model: Any | None = None
 

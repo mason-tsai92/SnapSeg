@@ -159,11 +159,13 @@ class AnnotatorSession:
         self.current_box: tuple[float, float, float, float] | None = None
         self.sam_mask: np.ndarray | None = None
         self.current_mask: np.ndarray | None = None
+        self.embedding_loaded_for: Path | None = None
         self.last_latency_ms = 0.0
         self.last_score = 0.0
         self.base_bgr: np.ndarray | None = None
         self.polygon_epsilon_ratio = 0.005
         self.prefetch_lookahead = 2
+        self.prefetch_enabled = self.service.device.startswith("cuda")
         self.restore_flags = bool(restore_flags)
 
         self.states: dict[str, ImageSessionState] = {
@@ -301,7 +303,9 @@ class AnnotatorSession:
             st.flagged = self._parse_flagged_value(payload.get("flagged", False))
 
         restored: list[InstanceRecord] = []
-        h, w = self.service.image_rgb.shape[:2]
+        if self.base_bgr is None:
+            return
+        h, w = self.base_bgr.shape[:2]
         for item in items:
             if not isinstance(item, dict):
                 continue
@@ -346,12 +350,14 @@ class AnnotatorSession:
             return
         self.current_idx = max(0, min(idx, len(self.images) - 1))
         self._image_state().visited = True
-        cache = self.prefetch.pop_ready(self.current_image)
+        cache = self.prefetch.pop_ready(self.current_image) if self.prefetch_enabled else None
         if cache is not None:
             self.service.load_cache(cache)
+            self.embedding_loaded_for = self.current_image
+            self.base_bgr = cv2.cvtColor(self.service.image_rgb, cv2.COLOR_RGB2BGR)
         else:
-            self.service.set_image(self.current_image)
-        self.base_bgr = cv2.cvtColor(self.service.image_rgb, cv2.COLOR_RGB2BGR)
+            self.embedding_loaded_for = None
+            self.base_bgr = self._read_image_bgr(self.current_image)
         self.points.clear()
         self.point_labels.clear()
         self.current_box = None
@@ -362,8 +368,31 @@ class AnnotatorSession:
         self._restore_autosave_for_current_image()
         self._request_prefetch_window()
 
-    def _request_prefetch_window(self) -> None:
+    @staticmethod
+    def _read_image_bgr(image_path: Path) -> np.ndarray:
+        # imdecode+fromfile is robust for Unicode paths on Windows.
+        data = np.fromfile(str(image_path), dtype=np.uint8)
+        img = cv2.imdecode(data, cv2.IMREAD_COLOR)
+        if img is None:
+            img = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
+        if img is None:
+            raise RuntimeError(f"Failed to load image: {image_path}")
+        return img
+
+    def _ensure_embedding_for_current_image(self) -> None:
         if not self.has_images:
+            return
+        if self.embedding_loaded_for == self.current_image:
+            return
+        cache = self.prefetch.pop_ready(self.current_image) if self.prefetch_enabled else None
+        if cache is not None:
+            self.service.load_cache(cache)
+        else:
+            self.service.set_image(self.current_image)
+        self.embedding_loaded_for = self.current_image
+
+    def _request_prefetch_window(self) -> None:
+        if not self.has_images or not self.prefetch_enabled:
             return
         for ahead in range(1, self.prefetch_lookahead + 1):
             future_idx = self.current_idx + ahead
@@ -451,6 +480,7 @@ class AnnotatorSession:
             self.last_latency_ms = 0.0
             self.last_score = 0.0
             return
+        self._ensure_embedding_for_current_image()
         point_coords = [[float(x), float(y)] for x, y in self.points] if self.points else None
         point_labels = self.point_labels if self.points else None
         pred = self.service.predict(
@@ -476,7 +506,9 @@ class AnnotatorSession:
     def set_box(self, x1: float, y1: float, x2: float, y2: float) -> None:
         if not self.has_images:
             return
-        h, w = self.service.image_rgb.shape[:2]
+        if self.base_bgr is None:
+            return
+        h, w = self.base_bgr.shape[:2]
         lx = float(max(0.0, min(float(w - 1), min(x1, x2))))
         rx = float(max(0.0, min(float(w - 1), max(x1, x2))))
         ty = float(max(0.0, min(float(h - 1), min(y1, y2))))
@@ -517,7 +549,9 @@ class AnnotatorSession:
             return False
         if self.current_mask is None:
             return False
-        h, w = self.service.image_rgb.shape[:2]
+        if self.base_bgr is None:
+            return False
+        h, w = self.base_bgr.shape[:2]
         cx = int(max(0, min(w - 1, round(float(x)))))
         cy = int(max(0, min(h - 1, round(float(y)))))
         rr = int(max(1, min(128, int(radius))))
@@ -781,7 +815,10 @@ class AnnotatorSession:
                 "flagged": False,
                 "has_mask": False,
             }
-        h, w = self.service.image_rgb.shape[:2]
+        if self.base_bgr is None:
+            h, w = 720, 1280
+        else:
+            h, w = self.base_bgr.shape[:2]
         pf = self.prefetch.status()
         inst_detail = [
             {
