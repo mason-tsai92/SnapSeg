@@ -535,16 +535,36 @@ function zoomReset() {
   viewScale = 1.0;
   viewTx = 0.0;
   viewTy = 0.0;
+  clampViewTransform();
   renderCanvas();
+}
+
+function clampViewTransform() {
+  if (!state || !state.ready || cv.width <= 0 || cv.height <= 0) return;
+  const scaledW = state.width * viewScale;
+  const scaledH = state.height * viewScale;
+  if (scaledW <= cv.width) {
+    viewTx = (cv.width - scaledW) * 0.5;
+  } else {
+    const minTx = cv.width - scaledW;
+    viewTx = Math.max(minTx, Math.min(0, viewTx));
+  }
+  if (scaledH <= cv.height) {
+    viewTy = (cv.height - scaledH) * 0.5;
+  } else {
+    const minTy = cv.height - scaledH;
+    viewTy = Math.max(minTy, Math.min(0, viewTy));
+  }
 }
 
 function zoomAt(cx, cy, scaleFactor) {
   const oldScale = viewScale;
-  const newScale = Math.max(1.0, Math.min(12.0, oldScale * scaleFactor));
+  const newScale = Math.max(0.5, Math.min(18.0, oldScale * scaleFactor));
   if (Math.abs(newScale - oldScale) < 1e-6) return;
   viewTx = cx - (cx - viewTx) * (newScale / oldScale);
   viewTy = cy - (cy - viewTy) * (newScale / oldScale);
   viewScale = newScale;
+  clampViewTransform();
   renderCanvas();
 }
 
@@ -950,19 +970,26 @@ async function pickImage() {
 }
 
 cv.addEventListener('contextmenu', (e) => e.preventDefault());
+cv.addEventListener('auxclick', (e) => {
+  if (e.button === 1) e.preventDefault();
+});
 cv.addEventListener('wheel', (e) => {
   e.preventDefault();
   if (!state) return;
   const rect = cv.getBoundingClientRect();
   const cx = (e.clientX - rect.left) * (cv.width / rect.width);
   const cy = (e.clientY - rect.top) * (cv.height / rect.height);
-  const factor = e.deltaY < 0 ? 1.15 : 1.0 / 1.15;
+  let deltaY = e.deltaY;
+  if (e.deltaMode === 1) deltaY *= 16;
+  if (e.deltaMode === 2) deltaY *= window.innerHeight;
+  const factor = Math.exp(-deltaY * 0.0015);
   zoomAt(cx, cy, factor);
 }, { passive: false });
 
 cv.addEventListener('mousedown', async (e) => {
   if (!state || !state.ready) return;
-  if (e.button === 0 && e.shiftKey) {
+  if ((e.button === 0 && e.shiftKey) || e.button === 1) {
+    e.preventDefault();
     dragPan = true;
     panLastX = e.clientX;
     panLastY = e.clientY;
@@ -1010,6 +1037,7 @@ cv.addEventListener('mousemove', async (e) => {
     panLastY = e.clientY;
     viewTx += dx;
     viewTy += dy;
+    clampViewTransform();
     renderCanvas();
     return;
   }
