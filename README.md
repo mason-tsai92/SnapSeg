@@ -38,6 +38,12 @@ python main.py --restore-flags
 python main.py --backend mobile_sam --model-id <huggingface_model_id>
 ```
 
+Optional custom checkpoint directory:
+
+```bash
+python main.py --checkpoint-dir "C:\path\to\Model Checkpoints"
+```
+
 ## Workflow
 
 1. Pick source folder or image
@@ -80,7 +86,26 @@ outputs/<run>/autosave/
 
 - Python 3.10+
 - CUDA GPU recommended (CPU works, slower)
-- Model weights auto-downloaded from Hugging Face on first run
+- `torch`, `torchvision`, `transformers`, `fastapi`, `uvicorn`, `opencv-python`, `numpy`, `pillow`
+- `segment-anything` (for local `.pth` checkpoint mode)
+
+## Model Checkpoints
+
+SnapSeg supports two model startup paths:
+
+1. **Local `.pth` first**: if a checkpoint exists in `Model Checkpoints/`, SnapSeg will try that first.
+2. **HF fallback**: if local checkpoint is missing or fails to initialize, SnapSeg falls back to `facebook/sam-vit-base` from Hugging Face (cache first, then download if needed).
+
+Place local checkpoints here:
+
+```text
+Snapseg/Model Checkpoints/
+  sam_vit_b_01ec64.pth
+```
+
+Checkpoint download (official SAM):
+
+- `vit_b`: [ViT-B SAM model](https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth)
 
 ## License
 

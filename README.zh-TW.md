@@ -38,6 +38,12 @@ python main.py --restore-flags
 python main.py --backend mobile_sam --model-id <huggingface_model_id>
 ```
 
+可選：自訂本地權重目錄
+
+```bash
+python main.py --checkpoint-dir "C:\path\to\Model Checkpoints"
+```
+
 ## 工作流程
 
 1. 選擇資料夾或單張圖片
@@ -80,7 +86,26 @@ outputs/<run>/autosave/
 
 - Python 3.10+
 - 建議使用 CUDA GPU（CPU 可用但較慢）
-- 首次執行會自動從 Hugging Face 下載模型權重
+- `torch`、`torchvision`、`transformers`、`fastapi`、`uvicorn`、`opencv-python`、`numpy`、`pillow`
+- `segment-anything`（本地 `.pth` 權重模式需要）
+
+## Model Checkpoints（本地權重）
+
+SnapSeg 支援兩種模型啟動方式：
+
+1. **優先本地 `.pth`**：若 `Model Checkpoints/` 有權重，會先嘗試本地載入。
+2. **HF 後備**：若本地權重不存在或初始化失敗，會改用 Hugging Face 的 `facebook/sam-vit-base`（先用快取，沒有才下載）。
+
+請把本地權重放在：
+
+```text
+Snapseg/Model Checkpoints/
+  sam_vit_b_01ec64.pth
+```
+
+官方權重下載連結：
+
+- `vit_b`：[ViT-B SAM model](https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth)
 
 ## 授權
 
