@@ -18,7 +18,14 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
-from src.interactive import AsyncAutosaveManager, AsyncSaveManager, MaskAnnotation, PrefetchQueue, SamEmbeddingCacheService, SaveTask
+from src.interactive import (
+    AsyncAutosaveManager,
+    AsyncSaveManager,
+    MaskAnnotation,
+    PrefetchQueue,
+    SaveTask,
+    get_global_service,
+)
 from src.interactive.dataset_packager import DatasetPackager
 
 
@@ -155,7 +162,7 @@ class AnnotatorSession:
         self.autosave_dir = self.out_dir / "autosave"
         self.autosave_dir.mkdir(parents=True, exist_ok=True)
 
-        self.service = SamEmbeddingCacheService(backend=backend, model_id=model_id)
+        self.service = get_global_service(backend=backend, model_id=model_id)
         self.prefetch = PrefetchQueue(device=self.service.device, min_free_gb=2.0)
         self.save_manager = AsyncSaveManager()
         self.autosave_manager = AsyncAutosaveManager()
@@ -190,6 +197,8 @@ class AnnotatorSession:
         self.prefetch_lookahead = 2
         self.prefetch_enabled = self.service.device.startswith("cuda")
         self.restore_flags = bool(restore_flags)
+        self._model_warmup_thread = threading.Thread(target=self._load_model_background, daemon=True, name="model-warmup")
+        self._model_warmup_thread.start()
 
         self.states: dict[str, ImageSessionState] = {
             str(p): ImageSessionState(instances=[], is_dirty=False) for p in images
@@ -197,6 +206,12 @@ class AnnotatorSession:
         self._preload_flags_from_autosave()
         if self.images:
             self._load_image(0)
+
+    def _load_model_background(self) -> None:
+        try:
+            self.service.ensure_model()
+        except Exception as exc:
+            logger.error("model_warmup_error err=%s", exc)
 
     @staticmethod
     def _label_color_bgr(label_name: str) -> tuple[int, int, int]:
@@ -570,10 +585,7 @@ class AnnotatorSession:
         self.current_mask = None
         self.last_latency_ms = 0.0
         self.last_score = 0.0
-        # During "Load Source", block until first-image embedding is ready
-        # so the first annotation click does not stall.
-        self._load_image(0, trigger_embedding=False)
-        self._prepare_current_embedding_blocking()
+        self._load_image(0, trigger_embedding=True)
 
     def _write_autosave_if_dirty(self) -> None:
         if not self.has_images:
@@ -1001,6 +1013,9 @@ class AnnotatorSession:
         return enc.tobytes()
 
     def state(self) -> dict:
+        model_elapsed_ms = None
+        if self.service.model_loading_started_at is not None and self.service.model_status == "loading":
+            model_elapsed_ms = round((time() - float(self.service.model_loading_started_at)) * 1000.0, 2)
         if not self.has_images or self.base_bgr is None:
             return {
                 "ready": False,
@@ -1030,6 +1045,10 @@ class AnnotatorSession:
                 "embedding_ready": False,
                 "embedding_status": "idle",
                 "embedding_error": "",
+                "model_status": self.service.model_status,
+                "model_error": self.service.model_error,
+                "model_loading_elapsed_ms": model_elapsed_ms,
+                "last_model_load_ms": self.service.last_model_load_ms,
                 "instances_detail": [],
                 "flagged": False,
                 "has_mask": False,
@@ -1077,6 +1096,10 @@ class AnnotatorSession:
             "embedding_ready": self.embedding_loaded_for == self.current_image,
             "embedding_status": self.embedding_status,
             "embedding_error": self.embedding_error,
+            "model_status": self.service.model_status,
+            "model_error": self.service.model_error,
+            "model_loading_elapsed_ms": model_elapsed_ms,
+            "last_model_load_ms": self.service.last_model_load_ms,
             "instances_detail": inst_detail,
             "flagged": bool(self._image_state().flagged),
             "has_mask": self.current_mask is not None,
@@ -1183,6 +1206,10 @@ def build_app(session: AnnotatorSession) -> FastAPI:
 
     @app.post("/api/config")
     def api_config(data: ConfigIn) -> JSONResponse:
+        if session.service.model_status in {"idle", "loading"}:
+            raise HTTPException(status_code=409, detail="Model is still loading. Please wait.")
+        if session.service.model_status == "error":
+            raise HTTPException(status_code=400, detail=session.service.model_error or "Model load failed.")
         with session.lock:
             try:
                 session.configure(data.source_path, data.classes)

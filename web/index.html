@@ -503,7 +503,7 @@
             <button class="btn" onclick="pickFolder()">Pick Folder</button>
             <button class="btn" onclick="pickImage()">Pick Image</button>
           </div>
-          <button class="btn primary" onclick="applyConfig()">Load Source</button>
+          <button id="btnLoadSource" class="btn primary" onclick="applyConfig()">Load Source</button>
         </div>
       </details>
       <details class="fold" open>
@@ -616,6 +616,7 @@ const btnUndoPointEl = document.getElementById('btnUndoPoint');
 const btnUndoInstEl = document.getElementById('btnUndoInst');
 const btnConfirmEl = document.getElementById('btnConfirm');
 const btnSaveEl = document.getElementById('btnSave');
+const btnLoadSourceEl = document.getElementById('btnLoadSource');
 const sourceEl = document.getElementById('sourcePath');
 const classInputEl = document.getElementById('classInput');
 const instanceListEl = document.getElementById('instanceList');
@@ -663,6 +664,7 @@ let brushBusy = false;
 let queuedBrush = null;
 let lastBrushSentAt = 0;
 let embeddingPollTimer = null;
+let modelPollTimer = null;
 
 function esc(s) {
   return String(s ?? '')
@@ -720,6 +722,31 @@ function updateTopActionAvailability() {
   if (btnConfirmEl) btnConfirmEl.disabled = !hasMask;
   // Save only after at least one confirmed instance exists.
   if (btnSaveEl) btnSaveEl.disabled = !(instances > 0);
+}
+
+function updateModelUI() {
+  if (!btnLoadSourceEl || !state) return;
+  const status = String(state.model_status || 'idle');
+  const elapsedMs = Number(state.model_loading_elapsed_ms || 0);
+  if (status === 'ready') {
+    btnLoadSourceEl.disabled = false;
+    btnLoadSourceEl.textContent = 'Load Source';
+    return;
+  }
+  if (status === 'error') {
+    btnLoadSourceEl.disabled = true;
+    btnLoadSourceEl.textContent = 'Model Error';
+    if (state.model_error) setStatusMessage(`Model failed: ${state.model_error}`);
+    return;
+  }
+  const sec = elapsedMs > 0 ? ` (${Math.round(elapsedMs / 1000)}s)` : '';
+  if (elapsedMs > 60000) {
+    btnLoadSourceEl.textContent = `Model stalled${sec}`;
+    setStatusMessage('Model loading is taking longer than expected. Check network/cache.');
+  } else {
+    btnLoadSourceEl.textContent = `Model loading${sec}...`;
+  }
+  btnLoadSourceEl.disabled = true;
 }
 
 function statusPills(item) {
@@ -1052,6 +1079,7 @@ async function getState() {
     { k: 'Latency', v: `${state.latency_ms} ms` },
     { k: 'Backend', v: `${state.backend_requested} -> ${state.backend}` },
     { k: 'Model', v: `${state.model_id}` },
+    { k: 'Model Status', v: `${state.model_status || 'idle'}` },
     { k: 'Save Queue', v: `${state.save_queue}` },
     { k: 'Autosave Queue', v: `${state.autosave_queue}` },
     { k: 'VRAM Free', v: `${state.prefetch_free_gb} GB` },
@@ -1071,6 +1099,7 @@ async function getState() {
     classInputEl.value = state.class_list.join(',');
   }
   renderInstanceList();
+  updateModelUI();
 }
 
 async function drawFrame() {
@@ -1087,6 +1116,19 @@ async function drawFrame() {
   } else if (embeddingPollTimer) {
     clearTimeout(embeddingPollTimer);
     embeddingPollTimer = null;
+  }
+  if (state && state.model_status === 'loading') {
+    if (!modelPollTimer) {
+      modelPollTimer = setTimeout(async () => {
+        modelPollTimer = null;
+        if (state && state.model_status === 'loading') {
+          await drawFrame();
+        }
+      }, 500);
+    }
+  } else if (modelPollTimer) {
+    clearTimeout(modelPollTimer);
+    modelPollTimer = null;
   }
   if (!state.ready) {
     hasFrame = true;
@@ -1226,6 +1268,16 @@ async function applyConfig() {
   const classes = classInputEl.value.trim();
   if (!source_path) {
     setStatusMessage("Please pick a folder/image path first.");
+    return;
+  }
+  if (state && state.model_status !== 'ready' && state.model_status !== 'error') {
+    const sec = Number(state.model_loading_elapsed_ms || 0);
+    const tip = sec > 0 ? ` (${Math.round(sec / 1000)}s)` : '';
+    setStatusMessage(`Model is still loading${tip}. Please wait.`);
+    return;
+  }
+  if (state && state.model_status === 'error') {
+    setStatusMessage(`Model failed: ${state.model_error || 'unknown error'}`);
     return;
   }
   showLoading('Loading source...');
