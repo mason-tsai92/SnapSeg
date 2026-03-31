@@ -19,6 +19,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from src.interactive import AsyncAutosaveManager, AsyncSaveManager, MaskAnnotation, PrefetchQueue, SamEmbeddingCacheService, SaveTask
+from src.interactive.dataset_packager import DatasetPackager
 
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
@@ -558,6 +559,7 @@ class AnnotatorSession:
         self.class_idx = 0
         self.current_idx = 0
         self.states = {str(img): ImageSessionState(instances=[], is_dirty=False) for img in images}
+        DatasetPackager(self.out_dir / "dataset").update_class_metadata(self.class_list)
         self._preload_flags_from_autosave()
         self.points.clear()
         self.point_labels.clear()
@@ -853,6 +855,7 @@ class AnnotatorSession:
                 image_out=image_out,
                 annotations=anns,
                 polygon_epsilon_ratio=self.polygon_epsilon_ratio,
+                class_list=self.class_list.copy(),
             )
         )
         self._image_state().is_dirty = True
