@@ -13,6 +13,7 @@ import numpy as np
 import torch
 
 from .exporter import AnnotationExporter, MaskAnnotation
+from .dataset_packager import DatasetPackager
 from .sam_service import SamEmbeddingCacheService, SamImageCache
 
 
@@ -116,6 +117,7 @@ class SaveTask:
     image_out: Path
     annotations: list[MaskAnnotation]
     polygon_epsilon_ratio: float
+    class_list: list[str]
 
 
 class AsyncSaveManager:
@@ -150,6 +152,12 @@ class AsyncSaveManager:
                 exp.export_coco(task.annotations, task.image_out / "annotations_coco.json")
                 exp.export_yolo_seg(task.annotations, task.image_out / "labels_yolo_seg", task.image_out / "classes_yolo_seg.txt")
                 exp.export_yolo_bbox(task.annotations, task.image_out / "labels_yolo_bbox", task.image_out / "classes_yolo_bbox.txt")
+                # Keep a flat, training-ready YOLO-seg dataset in parallel.
+                DatasetPackager(task.image_out.parent / "dataset").package_yolo_seg(
+                    image_path=task.image_path,
+                    image_out=task.image_out,
+                    class_list=task.class_list,
+                )
             finally:
                 self._q.task_done()
 
