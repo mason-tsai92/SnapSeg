@@ -120,6 +120,15 @@ class BrushIn(BaseModel):
     erase: bool = False
 
 
+class BrushLineIn(BaseModel):
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+    radius: int = 12
+    erase: bool = False
+
+
 class ActionIn(BaseModel):
     action: str
     class_idx: int | None = None
@@ -788,6 +797,46 @@ class AnnotatorSession:
         self._image_state().is_dirty = True
         return True
 
+    def brush_line(self, x1: float, y1: float, x2: float, y2: float, radius: int, erase: bool) -> bool:
+        if not self.has_images:
+            return False
+        if self.base_bgr is None:
+            return False
+        h, w = self.base_bgr.shape[:2]
+        x1i = int(max(0, min(w - 1, round(float(x1)))))
+        y1i = int(max(0, min(h - 1, round(float(y1)))))
+        x2i = int(max(0, min(w - 1, round(float(x2)))))
+        y2i = int(max(0, min(h - 1, round(float(y2)))))
+        rr = int(max(1, min(128, int(radius))))
+        if self.current_mask is None:
+            if erase:
+                return False
+            self.current_mask = np.zeros((h, w), dtype=np.uint8)
+            self.sam_mask = None
+        prev_mask = self.current_mask.copy() if self.current_mask is not None else None
+        prev_source = self.current_mask_source
+        prev_radius = self.current_brush_radius
+        self._brush_undo_stack.append((prev_mask, prev_source, prev_radius))
+        if len(self._brush_undo_stack) > 256:
+            self._brush_undo_stack.pop(0)
+        if self.current_mask_source != "brush":
+            self._brush_base_mask = self.current_mask.copy() if self.current_mask is not None else None
+            src = self.current_mask_source
+            self._brush_base_source = src if src in {"box_prompt", "mask_auto"} else None
+        target = self.current_mask.astype(np.uint8).copy()
+        value = 0 if erase else 1
+        cv2.line(target, (x1i, y1i), (x2i, y2i), color=value, thickness=max(1, rr * 2), lineType=cv2.LINE_AA)
+        cv2.circle(target, (x1i, y1i), rr, color=value, thickness=-1, lineType=cv2.LINE_AA)
+        cv2.circle(target, (x2i, y2i), rr, color=value, thickness=-1, lineType=cv2.LINE_AA)
+        self.current_mask = target
+        self.current_mask_source = "brush"
+        self.current_brush_radius = float(rr)
+        self._last_brush_xy = None
+        self._last_brush_erase = None
+        self._brush_stroke_active = False
+        self._image_state().is_dirty = True
+        return True
+
     def remove_last_instance(self) -> bool:
         if not self.has_images:
             return False
@@ -1229,6 +1278,20 @@ def build_app(session: AnnotatorSession) -> FastAPI:
     def api_brush(data: BrushIn) -> JSONResponse:
         with session.lock:
             session.brush(float(data.x), float(data.y), int(data.radius), bool(data.erase))
+            out = session.state()
+        return JSONResponse(out)
+
+    @app.post("/api/brush-line")
+    def api_brush_line(data: BrushLineIn) -> JSONResponse:
+        with session.lock:
+            session.brush_line(
+                float(data.x1),
+                float(data.y1),
+                float(data.x2),
+                float(data.y2),
+                int(data.radius),
+                bool(data.erase),
+            )
             out = session.state()
         return JSONResponse(out)
 
