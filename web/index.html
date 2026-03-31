@@ -76,6 +76,23 @@
     }
     .topBtn:hover { filter:brightness(1.08); }
     .topBtn svg { width:14px; height:14px; stroke:currentColor; fill:none; stroke-width:1.6; }
+    .topBtn:disabled {
+      background:repeating-linear-gradient(
+        -45deg,
+        #121922 0px,
+        #121922 6px,
+        #16202a 6px,
+        #16202a 12px
+      );
+      border-color:#4b5b6c;
+      color:rgba(230,238,247,0.52);
+      opacity:0.68;
+      cursor:not-allowed;
+      pointer-events:none;
+      filter:none;
+      box-shadow:none;
+    }
+    .topBtn:disabled svg { opacity:0.6; }
     .iconBtn {
       width:32px;
       height:32px;
@@ -417,10 +434,10 @@
   </div>
   <div class="topBar">
     <div class="topZone topLeft">
-      <button class="topBtn iconBtn neutral" onclick="act('prev')" title="Previous (Left)">
+      <button id="btnPrev" class="topBtn iconBtn neutral" onclick="act('prev')" title="Previous (Left)">
         <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
       </button>
-      <button class="topBtn iconBtn neutral" onclick="act('next')" title="Next (Space/Right)">
+      <button id="btnNext" class="topBtn iconBtn neutral" onclick="act('next')" title="Next (Space/Right)">
         <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
       </button>
       <button class="topBtn iconBtn neutral" onclick="zoomIn()" title="Zoom in (+)">
@@ -452,10 +469,10 @@
       </div>
     </div>
     <div class="topZone topRight">
-      <button class="topBtn iconBtn undoLite" onclick="act('undo')" title="Undo point (U)">
-        <svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M20 20a8 8 0 0 0-8-8H4"/></svg>
+      <button id="btnUndoPoint" class="topBtn iconBtn undoLite" onclick="act('undo')" title="Undo point (U)">
+        <svg viewBox="0 0 24 24"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
       </button>
-      <button class="topBtn iconBtn undoLite" onclick="act('undo_instance')" title="Undo instance (Backspace)">
+      <button id="btnUndoInst" class="topBtn iconBtn undoLite" onclick="act('undo_instance')" title="Undo instance (Backspace)">
         <svg viewBox="0 0 24 24"><path d="M11 17l-5-5 5-5"/><path d="M18 17l-5-5 5-5"/></svg>
       </button>
       <button class="topBtn iconBtn neutral" onclick="act('reset')" title="Reset current prompt (R)">
@@ -464,11 +481,11 @@
       <button class="topBtn iconBtn neutral" onclick="act('toggle_flag')" title="Flag (F)">
         <svg viewBox="0 0 24 24"><path d="M5 3v18"/><path d="M5 4h10l-1.5 3L15 10H5"/></svg>
       </button>
-      <button class="topBtn textBtn neutral" onclick="act('confirm')" title="Confirm (Enter)">
+      <button id="btnConfirm" class="topBtn textBtn neutral" onclick="act('confirm')" title="Confirm (Enter)">
         <svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
         <span>Confirm</span>
       </button>
-      <button class="topBtn textBtn save" onclick="act('save')" title="Save (S)">
+      <button id="btnSave" class="topBtn textBtn save" onclick="act('save')" title="Save (S)">
         <svg viewBox="0 0 24 24"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v6h8V3"/><path d="M8 21v-7h8v7"/></svg>
         <span>Save</span>
       </button>
@@ -593,6 +610,12 @@ const classTagsEl = document.getElementById('classTags');
 const epsEl = document.getElementById('eps');
 const epsText = document.getElementById('epsText');
 const gotoEl = document.getElementById('gotoIdx');
+const btnPrevEl = document.getElementById('btnPrev');
+const btnNextEl = document.getElementById('btnNext');
+const btnUndoPointEl = document.getElementById('btnUndoPoint');
+const btnUndoInstEl = document.getElementById('btnUndoInst');
+const btnConfirmEl = document.getElementById('btnConfirm');
+const btnSaveEl = document.getElementById('btnSave');
 const sourceEl = document.getElementById('sourcePath');
 const classInputEl = document.getElementById('classInput');
 const instanceListEl = document.getElementById('instanceList');
@@ -671,6 +694,32 @@ function updateImageChip() {
   const text = `${state.image_index}/${state.image_total} (${state.image_name || '-'})`;
   imageChipTextEl.textContent = text;
   imageChipEl.title = text;
+}
+
+function updateTopActionAvailability() {
+  if (!state || !state.ready) {
+    if (btnPrevEl) btnPrevEl.disabled = true;
+    if (btnNextEl) btnNextEl.disabled = true;
+    if (btnUndoPointEl) btnUndoPointEl.disabled = true;
+    if (btnUndoInstEl) btnUndoInstEl.disabled = true;
+    if (btnConfirmEl) btnConfirmEl.disabled = true;
+    if (btnSaveEl) btnSaveEl.disabled = true;
+    return;
+  }
+  const idx = Number(state.image_index || 0);
+  const total = Number(state.image_total || 0);
+  const points = Number(state.points || 0);
+  const hasBox = Boolean(state.has_box_prompt);
+  const instances = Number(state.instances || 0);
+  const hasMask = Boolean(state.has_mask);
+
+  if (btnPrevEl) btnPrevEl.disabled = !(idx > 1);
+  if (btnNextEl) btnNextEl.disabled = !(idx >= 1 && idx < total);
+  if (btnUndoPointEl) btnUndoPointEl.disabled = !((points > 0) || hasBox || hasMask);
+  if (btnUndoInstEl) btnUndoInstEl.disabled = !(instances > 0);
+  if (btnConfirmEl) btnConfirmEl.disabled = !hasMask;
+  // Save only after at least one confirmed instance exists.
+  if (btnSaveEl) btnSaveEl.disabled = !(instances > 0);
 }
 
 function statusPills(item) {
@@ -988,6 +1037,7 @@ async function getState() {
   const res = await fetch('/api/state');
   state = await res.json();
   updateImageChip();
+  updateTopActionAvailability();
   renderClassTags();
   const activeClass = (state.class_list && state.class_list.length > 0) ? state.class_list[state.class_idx] : '-';
   const promptMode = boxMode ? 'Box' : (editMode ? 'Brush' : 'Point');
@@ -1334,6 +1384,10 @@ window.addEventListener('keydown', async (e) => {
   const tag = (document.activeElement && document.activeElement.tagName) ? document.activeElement.tagName.toUpperCase() : "";
   const isTypingContext = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
   if (isTypingContext) return;
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'z' || e.key === 'Z')) {
+    e.preventDefault();
+    return act('undo');
+  }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (tag === 'BUTTON' && (e.key === ' ' || e.key === 'Enter')) {
     e.preventDefault();

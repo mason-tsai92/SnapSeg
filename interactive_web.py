@@ -877,6 +877,20 @@ class AnnotatorSession:
                 # In box mode, allow undo to clear the latest box prompt.
                 self.current_box = None
                 self._run_predict()
+            elif self.current_mask_source == "brush":
+                # In brush mode:
+                # - if SAM baseline exists, undo returns to SAM prediction;
+                # - for brush-only masks, undo clears current brush mask.
+                if self.sam_mask is not None:
+                    self.current_mask = self.sam_mask.copy()
+                    self.current_mask_source = "box_prompt" if self.current_box is not None else "mask_auto"
+                else:
+                    self.current_mask = None
+                    self.current_mask_source = None
+                    self.current_brush_radius = None
+                self._last_brush_xy = None
+                self._last_brush_erase = None
+                self._image_state().is_dirty = True
         elif action == "reset":
             self.points.clear()
             self.point_labels.clear()
