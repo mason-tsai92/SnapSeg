@@ -5,6 +5,8 @@
 **標得更快，匯出更快。**  
 以 SAM 驅動的互動式影像分割標註工具，點擊即可分割，幾秒內匯出 COCO / YOLO。
 
+![SnapSeg UI](docs/ui.png)
+
 ## Demo
 
 ![SnapSeg Demo](docs/demo_v2.gif)

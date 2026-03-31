@@ -5,6 +5,8 @@
 **Annotate faster. Export instantly.**  
 Interactive image segmentation powered by SAM - click to segment, export to COCO or YOLO in seconds.
 
+![SnapSeg UI](docs/ui.png)
+
 ## Demo
 
 ![SnapSeg Demo](docs/demo_v2.gif)
