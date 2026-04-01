@@ -9,11 +9,11 @@
 
 ## Demo
 
-![SnapSeg Demo](docs/demo_v2.gif)
+![SnapSeg Demo](docs/demo_v0.1.0.gif)
 
 ### Overview
 
-![SnapSeg Overview](docs/overview.gif)
+![SnapSeg Overview](docs/overview_v0.1.0.gif)
 
 ## 為什麼選 SnapSeg
 
@@ -77,6 +77,7 @@ outputs/<run>/<image_stem>/
   annotations_coco.json
   labels_yolo_seg/*.txt
   labels_yolo_bbox/*.txt
+  classes_yolo_seg.txt
   classes_yolo_bbox.txt
   *_mask_*.png
 
