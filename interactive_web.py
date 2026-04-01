@@ -215,9 +215,14 @@ class AnnotatorSession:
         self.embedding_generation = 0
         self._embed_queue: queue.Queue[tuple[Path, int]] = queue.Queue()
         self._embed_lock = threading.Lock()
+        self._embedding_inflight: tuple[Path, int] | None = None
         self._embed_thread = threading.Thread(target=self._embedding_worker, daemon=True, name="embed-worker")
         self._embed_thread.start()
         self._embedding_event = threading.Event()
+        self._enqueue_delay_s = 0.30
+        self._enqueue_timer: threading.Timer | None = None
+        self._enqueue_timer_lock = threading.Lock()
+        self._enqueue_timer_token = 0
         self.last_latency_ms = 0.0
         self.last_score = 0.0
         self.base_bgr: np.ndarray | None = None
@@ -432,6 +437,8 @@ class AnnotatorSession:
 
     def _enqueue_embedding(self, image_path: Path, generation: int) -> None:
         with self._embed_lock:
+            if self._embedding_inflight == (image_path, generation):
+                return
             try:
                 while True:
                     self._embed_queue.get_nowait()
@@ -441,11 +448,48 @@ class AnnotatorSession:
             self._embed_queue.put((image_path, generation))
         logger.info("embed_enqueue image=%s gen=%s", image_path.name, generation)
 
+    def _cancel_scheduled_enqueue(self) -> None:
+        timer: threading.Timer | None = None
+        with self._enqueue_timer_lock:
+            self._enqueue_timer_token += 1
+            if self._enqueue_timer is not None:
+                timer = self._enqueue_timer
+                self._enqueue_timer = None
+        if timer is not None:
+            timer.cancel()
+
+    def _schedule_embedding_enqueue(self, image_path: Path, generation: int) -> None:
+        with self._enqueue_timer_lock:
+            old_timer = self._enqueue_timer
+            self._enqueue_timer_token += 1
+            token = self._enqueue_timer_token
+            timer = threading.Timer(
+                self._enqueue_delay_s,
+                self._enqueue_if_still_current,
+                args=(image_path, generation, token),
+            )
+            timer.daemon = True
+            self._enqueue_timer = timer
+        if old_timer is not None:
+            old_timer.cancel()
+        timer.start()
+
+    def _enqueue_if_still_current(self, image_path: Path, generation: int, token: int) -> None:
+        with self._enqueue_timer_lock:
+            if token != self._enqueue_timer_token:
+                return
+            self._enqueue_timer = None
+        with self.lock:
+            if self.embedding_generation == generation and self.current_image == image_path:
+                self._enqueue_embedding(image_path, generation)
+
     def _embedding_worker(self) -> None:
         while True:
             target, generation = self._embed_queue.get()
             try:
                 logger.info("embed_worker_start image=%s gen=%s", target.name, generation)
+                with self._embed_lock:
+                    self._embedding_inflight = (target, generation)
 
                 success = False
                 err_msg = ""
@@ -489,11 +533,15 @@ class AnnotatorSession:
                     if should_predict:
                         self._run_predict()
             finally:
+                with self._embed_lock:
+                    if self._embedding_inflight == (target, generation):
+                        self._embedding_inflight = None
                 self._embed_queue.task_done()
 
     def _load_image(self, idx: int, trigger_embedding: bool = True) -> None:
         if not self.has_images:
             return
+        self._cancel_scheduled_enqueue()
         self.current_idx = max(0, min(idx, len(self.images) - 1))
         self.embedding_generation += 1
         gen = self.embedding_generation
@@ -531,7 +579,7 @@ class AnnotatorSession:
         if self.embedding_loaded_for == self.current_image:
             self._embedding_event.set()
         elif trigger_embedding:
-            self._enqueue_embedding(self.current_image, gen)
+            self._schedule_embedding_enqueue(self.current_image, gen)
         self._request_prefetch_window()
 
     @staticmethod
@@ -712,6 +760,7 @@ class AnnotatorSession:
         self.point_labels.append(1 if label > 0 else 0)
         self._image_state().is_dirty = True
         if self.embedding_loaded_for != self.current_image:
+            self._cancel_scheduled_enqueue()
             self._enqueue_embedding(self.current_image, self.embedding_generation)
             return False
         return self._run_predict()
@@ -733,6 +782,7 @@ class AnnotatorSession:
         self.current_box = (lx, ty, rx, by)
         self._image_state().is_dirty = True
         if self.embedding_loaded_for != self.current_image:
+            self._cancel_scheduled_enqueue()
             self._enqueue_embedding(self.current_image, self.embedding_generation)
             return False
         return self._run_predict()
@@ -1017,6 +1067,7 @@ class AnnotatorSession:
                 self.current_box = None
                 self._run_predict()
         elif action == "reset":
+            self._cancel_scheduled_enqueue()
             self.points.clear()
             self.point_labels.clear()
             self.current_box = None
