@@ -1400,6 +1400,8 @@ def build_app(session: AnnotatorSession) -> FastAPI:
     web_dir = Path(__file__).resolve().parent / "web"
     locales_dir = web_dir / "locales"
     themes_dir = web_dir / "themes"
+    if web_dir.exists():
+        app.mount("/web", StaticFiles(directory=str(web_dir)), name="web")
     if locales_dir.exists():
         app.mount("/locales", StaticFiles(directory=str(locales_dir)), name="locales")
     if themes_dir.exists():
