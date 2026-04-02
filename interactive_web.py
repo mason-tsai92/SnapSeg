@@ -6,6 +6,7 @@ import logging
 import queue
 import threading
 import hashlib
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from time import time
@@ -436,6 +437,125 @@ class AnnotatorSession:
             st.instances = restored
             st.is_dirty = False
 
+    def _restore_saved_for_current_image(self) -> None:
+        if not self.has_images:
+            return
+        st = self._image_state()
+        if st.instances:
+            return
+        if self.base_bgr is None:
+            return
+
+        image_out = self.out_dir / self.current_image.stem
+        if not image_out.exists():
+            return
+
+        h, w = self.base_bgr.shape[:2]
+        pattern = re.compile(rf"^{re.escape(self.current_image.stem)}_mask_(\d+)_(.+)\.png$")
+        candidates: list[tuple[int, Path, str]] = []
+        for p in image_out.glob(f"{self.current_image.stem}_mask_*_*.png"):
+            m = pattern.match(p.name)
+            if not m:
+                continue
+            try:
+                idx = int(m.group(1))
+            except Exception:
+                continue
+            label_name = m.group(2)
+            candidates.append((idx, p, label_name))
+        if not candidates:
+            return
+
+        restored: list[InstanceRecord] = []
+        for _, mask_path, label_name in sorted(candidates, key=lambda x: x[0]):
+            mask_img = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
+            if mask_img is None:
+                continue
+            if mask_img.shape[:2] != (h, w):
+                continue
+            mask_bin = (mask_img > 0).astype(np.uint8)
+            if int(mask_bin.sum()) == 0:
+                continue
+            if label_name not in self.class_list:
+                self.class_list.append(label_name)
+            restored.append(
+                InstanceRecord(
+                    label=label_name,
+                    mask=mask_bin,
+                    score=1.0,
+                    bbox_source="mask_auto",
+                    bbox_override=None,
+                    brush_radius=None,
+                )
+            )
+        if restored:
+            st.instances = restored
+            st.is_dirty = False
+
+    def _restore_labelme_for_current_image(self) -> None:
+        if not self.has_images:
+            return
+        st = self._image_state()
+        if st.instances:
+            return
+        if self.base_bgr is None:
+            return
+
+        labelme_json = self.current_image.with_suffix(".json")
+        if not labelme_json.exists():
+            return
+
+        try:
+            payload = json.loads(labelme_json.read_text(encoding="utf-8"))
+        except Exception:
+            return
+        shapes = payload.get("shapes", [])
+        if not isinstance(shapes, list):
+            return
+
+        h, w = self.base_bgr.shape[:2]
+        restored: list[InstanceRecord] = []
+        for shape in shapes:
+            if not isinstance(shape, dict):
+                continue
+            label_name = str(shape.get("label", "object")).strip() or "object"
+            pts = shape.get("points", [])
+            if not isinstance(pts, list) or len(pts) < 3:
+                continue
+            poly: list[list[int]] = []
+            for p in pts:
+                if not isinstance(p, (list, tuple)) or len(p) < 2:
+                    continue
+                try:
+                    x = int(round(float(p[0])))
+                    y = int(round(float(p[1])))
+                except Exception:
+                    continue
+                x = max(0, min(w - 1, x))
+                y = max(0, min(h - 1, y))
+                poly.append([x, y])
+            if len(poly) < 3:
+                continue
+            mask_bin = np.zeros((h, w), dtype=np.uint8)
+            cv2.fillPoly(mask_bin, [np.asarray(poly, dtype=np.int32)], color=1)
+            if int(mask_bin.sum()) == 0:
+                continue
+            if label_name not in self.class_list:
+                self.class_list.append(label_name)
+            restored.append(
+                InstanceRecord(
+                    label=label_name,
+                    mask=mask_bin,
+                    score=1.0,
+                    bbox_source="mask_auto",
+                    bbox_override=None,
+                    brush_radius=None,
+                )
+            )
+        if restored:
+            st.instances = restored
+            st.is_dirty = False
+
     def _enqueue_embedding(self, image_path: Path, generation: int) -> None:
         with self._embed_lock:
             if self._embedding_inflight == (image_path, generation):
@@ -577,6 +697,8 @@ class AnnotatorSession:
         self.last_latency_ms = 0.0
         self.last_score = 0.0
         self._restore_autosave_for_current_image()
+        self._restore_saved_for_current_image()
+        self._restore_labelme_for_current_image()
         if self.embedding_loaded_for == self.current_image:
             self._embedding_event.set()
         elif trigger_embedding:
