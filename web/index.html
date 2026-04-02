@@ -1085,6 +1085,12 @@ const DEFAULT_LOCALE = 'en';
 const SUPPORTED_LOCALES = ['en', 'zh-TW'];
 let currentLocale = DEFAULT_LOCALE;
 let messages = {};
+const THEME_MARKERS = {
+  dark: "🔵",
+  Graphite: "⚫",
+  Fog: "⚪",
+  Soft: "🟤",
+};
 const shortcutSpecs = [
   { id: 'save', label: 'Save', default: 'S', handler: () => act('save') },
   { id: 'confirm', label: 'Confirm', default: 'Enter', handler: () => act('confirm') },
@@ -1187,6 +1193,13 @@ function setText(id, key, vars = {}) {
   el.textContent = t(key, vars);
 }
 
+function setThemeOptionLabel(id, themeKey, nameKey) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const marker = THEME_MARKERS[themeKey] || "●";
+  el.textContent = `${marker} ${t(nameKey)}`;
+}
+
 function applyI18n() {
   document.documentElement.lang = currentLocale === 'zh-TW' ? 'zh-Hant' : 'en';
   document.title = t('app.doc_title');
@@ -1195,10 +1208,10 @@ function applyI18n() {
   setText('settingsTitle', 'settings.title');
   setText('settingsCloseBtn', 'common.close');
   setText('settingsThemeTitle', 'settings.theme');
-  setText('themeDarkOption', 'theme.dark');
-  setText('themeGraphiteOption', 'theme.graphite');
-  setText('themeFogOption', 'theme.fog');
-  setText('themeSoftOption', 'theme.soft');
+  setThemeOptionLabel('themeDarkOption', 'dark', 'theme.dark');
+  setThemeOptionLabel('themeGraphiteOption', 'Graphite', 'theme.graphite');
+  setThemeOptionLabel('themeFogOption', 'Fog', 'theme.fog');
+  setThemeOptionLabel('themeSoftOption', 'Soft', 'theme.soft');
   setText('settingsLanguageTitle', 'settings.language');
   setText('localeEnOption', 'language.en');
   setText('localeZhOption', 'language.zh_tw');
