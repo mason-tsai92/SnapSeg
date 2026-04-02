@@ -51,6 +51,7 @@
       --ui-undo-btn-line:#44586e;
       --ui-save-btn-bg:#1a4a2e;
       --ui-save-btn-line:#2a6a42;
+      --ui-save-text:#27c26c;
       --ui-disabled-line:#4b5b6c;
       --ui-disabled-text:rgba(230,238,247,0.52);
       --ui-disabled-stripe-1:#121922;
@@ -261,7 +262,7 @@
     }
     .topBtn.neutral { background:var(--ui-neutral-btn-bg); color:var(--ui-neutral-btn-text); border-color:var(--ui-line); }
     .topBtn.undoLite { background:var(--ui-undo-btn-bg); color:var(--ui-chip-text); border-color:var(--ui-undo-btn-line); }
-    .topBtn.save { background:var(--ui-save-btn-bg); color:var(--ok); border-color:var(--ui-save-btn-line); }
+    .topBtn.save { background:var(--ui-save-btn-bg); color:var(--ui-save-text, var(--ok)); border-color:var(--ui-save-btn-line); }
     .topBtn.textBtn { padding:0 12px; }
     .modeSeg {
       display:inline-flex;
@@ -764,6 +765,7 @@
             <option id="themeDarkOption" value="dark">Slate</option>
             <option id="themeGraphiteOption" value="Graphite">Graphite</option>
             <option id="themeFogOption" value="Fog">Fog</option>
+            <option id="themeSoftOption" value="Soft">Soft</option>
           </select>
         </div>
       </div>
@@ -1077,7 +1079,7 @@ const SHORTCUT_STORAGE_KEY = 'snapseg.shortcuts.v1';
 const VIEW_ADJUST_STORAGE_KEY = 'snapseg.view_adjust.v1';
 const THEME_STORAGE_KEY = 'snapseg.theme.v1';
 const DEFAULT_THEME = 'dark';
-const SUPPORTED_THEMES = ['dark', 'Graphite', 'Fog'];
+const SUPPORTED_THEMES = ['dark', 'Graphite', 'Fog', 'Soft'];
 const LOCALE_STORAGE_KEY = 'snapseg.locale.v1';
 const DEFAULT_LOCALE = 'en';
 const SUPPORTED_LOCALES = ['en', 'zh-TW'];
@@ -1132,7 +1134,8 @@ function applyThemeTokens(tokens) {
 }
 
 async function loadTheme(themeName, opts = { persist: true, markReady: true }) {
-  const normalized = SUPPORTED_THEMES.includes(themeName) ? themeName : DEFAULT_THEME;
+  const themeByLower = Object.fromEntries(SUPPORTED_THEMES.map((n) => [String(n).toLowerCase(), n]));
+  const normalized = themeByLower[String(themeName || '').toLowerCase()] || DEFAULT_THEME;
   const res = await fetch(`/themes/${encodeURIComponent(normalized)}.json?ts=${Date.now()}`);
   if (!res.ok) throw new Error(`theme ${normalized} not found`);
   const tokens = await res.json();
@@ -1195,6 +1198,7 @@ function applyI18n() {
   setText('themeDarkOption', 'theme.dark');
   setText('themeGraphiteOption', 'theme.graphite');
   setText('themeFogOption', 'theme.fog');
+  setText('themeSoftOption', 'theme.soft');
   setText('settingsLanguageTitle', 'settings.language');
   setText('localeEnOption', 'language.en');
   setText('localeZhOption', 'language.zh_tw');

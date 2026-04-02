@@ -23,6 +23,7 @@
   "theme.dark": "Slate",
   "theme.graphite": "Graphite",
   "theme.fog": "Fog",
+  "theme.soft": "Soft",
 
   "overview.title": "Annotation Overview",
   "overview.filter_all": "All",
