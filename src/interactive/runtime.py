@@ -157,6 +157,9 @@ class AsyncSaveManager:
                 continue
             try:
                 task.image_out.mkdir(parents=True, exist_ok=True)
+                # Prevent stale masks from older saves from being loaded later.
+                for old_mask in task.image_out.glob(f"{task.image_path.stem}_mask_*_*.png"):
+                    old_mask.unlink(missing_ok=True)
                 for i, ann in enumerate(task.annotations):
                     mask_u8 = (ann.mask.astype(np.uint8) * 255)
                     cv2.imwrite(str(task.image_out / f"{task.image_path.stem}_mask_{i}_{ann.category_name}.png"), mask_u8)
