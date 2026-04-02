@@ -61,6 +61,7 @@
     "--overlay-bg":  "rgba(8, 12, 18, 0.66)",
     "--overview-overlay-bg":  "rgba(8, 12, 18, 0.72)",
     "--panel-shadow":  "0 16px 40px rgba(0, 0, 0, 0.35)",
+    "--shadow-thumb":  "rgba(0, 0, 0, 0.12)",
     "--info-card-line":  "#324658",
     "--info-card-bg":  "#162331",
     "--metric-line":  "#304456",

@@ -70,6 +70,7 @@
       --overlay-bg:rgba(8, 12, 18, 0.66);
       --overview-overlay-bg:rgba(8, 12, 18, 0.72);
       --panel-shadow:0 16px 40px rgba(0, 0, 0, 0.35);
+      --shadow-thumb: rgba(0, 0, 0, 0.12);
 
       --info-card-line:#324658;
       --info-card-bg:#162331;
@@ -428,7 +429,7 @@
       background: var(--range-thumb-bg);
       border: 1px solid var(--range-thumb-border);
       cursor: pointer;
-      box-shadow: 0 0 0 2px rgba(0,0,0,0.12);
+      box-shadow: 0 0 0 2px var(--shadow-thumb);
     }
     input[type="range"]::-moz-range-track {
       height: 6px;
