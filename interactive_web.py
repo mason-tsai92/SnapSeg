@@ -15,6 +15,7 @@ import cv2
 import numpy as np
 import uvicorn
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
@@ -1274,10 +1275,14 @@ class AnnotatorSession:
 
 def build_app(session: AnnotatorSession) -> FastAPI:
     app = FastAPI(title="SnapSeg Interactive Web")
+    web_dir = Path(__file__).resolve().parent / "web"
+    locales_dir = web_dir / "locales"
+    if locales_dir.exists():
+        app.mount("/locales", StaticFiles(directory=str(locales_dir)), name="locales")
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:
-        html_path = Path(__file__).resolve().parent / "web" / "index.html"
+        html_path = web_dir / "index.html"
         if not html_path.exists():
             raise HTTPException(status_code=500, detail=f"Missing frontend file: {html_path}")
         return html_path.read_text(encoding="utf-8")
