@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>SnapSeg Interactive Annotator</title>
+  <title id="docTitle">SnapSeg Interactive Annotator</title>
   <style>
     :root {
       --bg:#0f1720;
@@ -592,26 +592,35 @@
   <div id="settingsOverlay" class="settingsOverlay" onclick="closeSettings()">
     <div class="settingsCard" onclick="event.stopPropagation()">
       <div class="settingsHead">
-        <div class="settingsTitle">Settings</div>
-        <button class="btn flagJump" onclick="closeSettings()">Close</button>
+        <div id="settingsTitle" class="settingsTitle">Settings</div>
+        <button id="settingsCloseBtn" class="btn flagJump" onclick="closeSettings()">Close</button>
       </div>
       <div id="settingsHint" class="settingsHint">Customize shortcuts. Click "Set" then press a key combination.</div>
+      <div class="settingsSection">
+        <div id="settingsLanguageTitle" class="settingsSectionTitle">Language</div>
+        <div class="row">
+          <select id="localeSelect" class="fieldInput" onchange="changeLocale(this.value)">
+            <option value="en">English</option>
+            <option value="zh-TW">繁體中文</option>
+          </select>
+        </div>
+      </div>
       <div id="shortcutTable" class="shortcutTable"></div>
       <div class="settingsTools">
-        <button class="btn" onclick="resetShortcuts()">Reset Defaults</button>
+        <button id="resetDefaultsBtn" class="btn" onclick="resetShortcuts()">Reset Defaults</button>
       </div>
     </div>
   </div>
   <div id="overviewOverlay" class="overviewOverlay" onclick="closeOverview()">
     <div class="overviewCard" onclick="event.stopPropagation()">
       <div class="overviewHead">
-        <div class="overviewTitle">Annotation Overview</div>
+        <div id="overviewTitle" class="overviewTitle">Annotation Overview</div>
         <div class="overviewTools">
-          <button class="tagBtn active" data-filter="all" onclick="setOverviewFilter('all')">All</button>
-          <button class="tagBtn" data-filter="flagged" onclick="setOverviewFilter('flagged')">Flagged</button>
-          <button class="tagBtn" data-filter="labeled" onclick="setOverviewFilter('labeled')">Labeled</button>
-          <button class="tagBtn" data-filter="unseen" onclick="setOverviewFilter('unseen')">Unseen</button>
-          <button class="btn flagJump" onclick="closeOverview()">Close</button>
+          <button id="overviewFilterAll" class="tagBtn active" data-filter="all" onclick="setOverviewFilter('all')">All</button>
+          <button id="overviewFilterFlagged" class="tagBtn" data-filter="flagged" onclick="setOverviewFilter('flagged')">Flagged</button>
+          <button id="overviewFilterLabeled" class="tagBtn" data-filter="labeled" onclick="setOverviewFilter('labeled')">Labeled</button>
+          <button id="overviewFilterUnseen" class="tagBtn" data-filter="unseen" onclick="setOverviewFilter('unseen')">Unseen</button>
+          <button id="overviewCloseBtn" class="btn flagJump" onclick="closeOverview()">Close</button>
         </div>
       </div>
       <div id="overviewGrid" class="overviewGrid"></div>
@@ -639,10 +648,10 @@
       </button>
       <div class="gotoGroup">
         <input id="gotoIdx" class="topInput" type="number" min="1" step="1" placeholder="Index" title="Go to image index">
-        <button class="topBtn neutral" onclick="gotoImage()" title="Go to image index">Go</button>
+        <button id="gotoBtn" class="topBtn neutral" onclick="gotoImage()" title="Go to image index">Go</button>
       </div>
       <div id="imageChip" class="imageChip" title="-">
-        <span class="imageChipLabel">Image</span>
+        <span id="imageChipLabel" class="imageChipLabel">Image</span>
         <span id="imageChipText" class="imageChipText">-</span>
       </div>
     </div>
@@ -660,19 +669,19 @@
       <button id="btnUndoInst" class="topBtn iconBtn undoLite" onclick="act('undo_instance')" title="Undo instance (Backspace)">
         <svg viewBox="0 0 24 24"><path d="M11 17l-5-5 5-5"/><path d="M18 17l-5-5 5-5"/></svg>
       </button>
-      <button class="topBtn iconBtn neutral" onclick="act('reset')" title="Reset current prompt (R)">
+      <button id="btnResetPrompt" class="topBtn iconBtn neutral" onclick="act('reset')" title="Reset current prompt (R)">
         <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/></svg>
       </button>
-      <button class="topBtn iconBtn neutral" onclick="act('toggle_flag')" title="Flag (F)">
+      <button id="btnToggleFlag" class="topBtn iconBtn neutral" onclick="act('toggle_flag')" title="Flag (F)">
         <svg viewBox="0 0 24 24"><path d="M5 3v18"/><path d="M5 4h10l-1.5 3L15 10H5"/></svg>
       </button>
       <button id="btnConfirm" class="topBtn textBtn neutral" onclick="act('confirm')" title="Confirm (Enter)">
         <svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
-        <span>Confirm</span>
+        <span id="confirmLabel">Confirm</span>
       </button>
       <button id="btnSave" class="topBtn textBtn save" onclick="act('save')" title="Save (S)">
         <svg viewBox="0 0 24 24"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v6h8V3"/><path d="M8 21v-7h8v7"/></svg>
-        <span>Save</span>
+        <span id="saveLabel">Save</span>
       </button>
       <button id="btnSettings" class="topBtn iconBtn neutral" onclick="openSettings()" title="Settings">
         <svg viewBox="0 0 24 24"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z"/><path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a2 2 0 0 1 0 2.8l-.1.1a2 2 0 0 1-2.8 0l-.1-.1a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9V20a2 2 0 0 1-2 2h-.2a2 2 0 0 1-2-2v-.2a1 1 0 0 0-.6-.9 1 1 0 0 0-1.1.2l-.1.1a2 2 0 0 1-2.8 0l-.1-.1a2 2 0 0 1 0-2.8l.1-.1a1 1 0 0 0 .2-1.1 1 1 0 0 0-.9-.6H4a2 2 0 0 1-2-2v-.2a2 2 0 0 1 2-2h.2a1 1 0 0 0 .9-.6 1 1 0 0 0-.2-1.1l-.1-.1a2 2 0 0 1 0-2.8l.1-.1a2 2 0 0 1 2.8 0l.1.1a1 1 0 0 0 1.1.2 1 1 0 0 0 .6-.9V4a2 2 0 0 1 2-2h.2a2 2 0 0 1 2 2v.2a1 1 0 0 0 .6.9 1 1 0 0 0 1.1-.2l.1-.1a2 2 0 0 1 2.8 0l.1.1a2 2 0 0 1 0 2.8l-.1.1a1 1 0 0 0-.2 1.1 1 1 0 0 0 .9.6h.2a2 2 0 0 1 2 2v.2a2 2 0 0 1-2 2h-.2a1 1 0 0 0-.9.6z"/></svg>
@@ -681,66 +690,66 @@
   </div>
   <div class="wrap">
     <div class="panel controlPanel">
-      <div class="title">SnapSeg Interactive Annotator</div>
+      <div id="appTitle" class="title">SnapSeg Interactive Annotator</div>
       <details class="fold" open>
-        <summary>Source</summary>
+        <summary id="sourceSummary">Source</summary>
         <div class="foldBody">
-          <div style="margin-bottom:6px;">Select a source folder or a single image:</div>
+          <div id="sourceDesc" style="margin-bottom:6px;">Select a source folder or a single image:</div>
           <input id="sourcePath" class="fieldInput" type="text" readonly placeholder="Pick a folder or image path">
           <div class="row">
-            <button class="btn" onclick="pickFolder()">Pick Folder</button>
-            <button class="btn" onclick="pickImage()">Pick Image</button>
+            <button id="pickFolderBtn" class="btn" onclick="pickFolder()">Pick Folder</button>
+            <button id="pickImageBtn" class="btn" onclick="pickImage()">Pick Image</button>
           </div>
           <button id="btnLoadSource" class="btn primary" onclick="applyConfig()">Load Source</button>
         </div>
       </details>
       <details class="fold" open>
-        <summary>Classes</summary>
+        <summary id="classesSummary">Classes</summary>
         <div class="foldBody">
-          <div style="margin-top:2px;margin-bottom:6px;">Class List (comma-separated)</div>
+          <div id="classListLabel" style="margin-top:2px;margin-bottom:6px;">Class List (comma-separated)</div>
           <input id="classInput" class="fieldInput" type="text" placeholder="scratch,particle,stain">
-          <div style="margin-top:10px;margin-bottom:6px;">Active Class</div>
+          <div id="activeClassLabel" style="margin-top:10px;margin-bottom:6px;">Active Class</div>
           <div id="classTags" class="classTags"></div>
           <div class="row">
             <button class="btn btnCompact" onclick="act('class_prev')" title="Previous Class (P)">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg><span class="lbl">Class P</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg><span id="classPrevLabel" class="lbl">Class P</span>
             </button>
             <button class="btn btnCompact" onclick="act('class_next')" title="Next Class (N)">
-              <span class="lbl">Class N</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+              <span id="classNextLabel" class="lbl">Class N</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
             </button>
           </div>
         </div>
       </details>
       <details class="fold">
-        <summary>Settings</summary>
+        <summary id="settingsSummary">Settings</summary>
         <div class="foldBody">
           <div class="settingsSection">
-            <div class="settingsSectionTitle">View Adjustment</div>
+            <div id="viewAdjustmentTitle" class="settingsSectionTitle">View Adjustment</div>
             <div class="viewRow">
-              <div class="viewLabel">Brightness</div>
+              <div id="brightnessLabel" class="viewLabel">Brightness</div>
               <input id="viewBrightness" type="range" min="50" max="170" step="1" value="100">
               <div id="viewBrightnessVal" class="viewValue">100%</div>
             </div>
             <div class="viewRow">
-              <div class="viewLabel">Contrast</div>
+              <div id="contrastLabel" class="viewLabel">Contrast</div>
               <input id="viewContrast" type="range" min="50" max="220" step="1" value="100">
               <div id="viewContrastVal" class="viewValue">100%</div>
             </div>
             <div class="viewRow">
-              <div class="viewLabel">Saturation</div>
+              <div id="saturationLabel" class="viewLabel">Saturation</div>
               <input id="viewSaturate" type="range" min="0" max="220" step="1" value="100">
               <div id="viewSaturateVal" class="viewValue">100%</div>
             </div>
             <div class="row">
-              <button class="btn" onclick="resetViewAdjust()">Reset View</button>
+              <button id="resetViewBtn" class="btn" onclick="resetViewAdjust()">Reset View</button>
             </div>
           </div>
-          <div style="margin-top:6px;margin-bottom:6px;">Brush Radius</div>
+          <div id="brushRadiusLabel" style="margin-top:6px;margin-bottom:6px;">Brush Radius</div>
           <input id="brushRadius" type="range" min="1" max="64" step="1" value="12" style="width:100%;">
-          <div style="margin-top:10px;margin-bottom:6px;">Polygon Smoothing (epsilon)</div>
+          <div id="epsilonLabel" style="margin-top:10px;margin-bottom:6px;">Polygon Smoothing (epsilon)</div>
           <input id="eps" type="range" min="0" max="0.02" step="0.0005" value="0.005" style="width:100%;">
           <div class="row">
-            <button class="btn" onclick="applyEpsilon()">Apply Epsilon</button>
+            <button id="applyEpsilonBtn" class="btn" onclick="applyEpsilon()">Apply Epsilon</button>
           </div>
           <div class="status" id="epsText"></div>
         </div>
@@ -753,14 +762,14 @@
     </div>
     <aside class="inspector">
       <details class="fold" open>
-        <summary>Progress</summary>
+        <summary id="progressSummary">Progress</summary>
         <div class="foldBody">
           <div class="infoCard">
             <div class="progressGrid">
-              <div class="metric"><div class="mk">Visited</div><div id="pVisited" class="mv">0</div></div>
-              <div class="metric"><div class="mk">Labeled</div><div id="pLabeled" class="mv">0</div></div>
-              <div class="metric"><div class="mk">Flagged</div><div id="pFlagged" class="mv">0</div></div>
-              <div class="metric"><div class="mk">Instances</div><div id="pInstances" class="mv">0</div></div>
+              <div class="metric"><div id="metricVisited" class="mk">Visited</div><div id="pVisited" class="mv">0</div></div>
+              <div class="metric"><div id="metricLabeled" class="mk">Labeled</div><div id="pLabeled" class="mv">0</div></div>
+              <div class="metric"><div id="metricFlagged" class="mk">Flagged</div><div id="pFlagged" class="mv">0</div></div>
+              <div class="metric"><div id="metricInstances" class="mk">Instances</div><div id="pInstances" class="mv">0</div></div>
             </div>
             <div class="status" id="pSummary" style="margin-top:8px;"></div>
             <div class="visitBar"><div id="pVisitFill" class="visitFill"></div></div>
@@ -769,19 +778,19 @@
         </div>
       </details>
       <details class="fold" open>
-        <summary>Confirmed Instances</summary>
+        <summary id="confirmedSummary">Confirmed Instances</summary>
         <div class="foldBody">
           <div class="infoCard">
             <div id="instanceList" class="status"></div>
             <div class="instStatsWrap">
-              <div class="instStatsTitle">Annotation Stats (Current Image)</div>
+              <div id="instStatsTitle" class="instStatsTitle">Annotation Stats (Current Image)</div>
               <div id="instanceStats" class="status"></div>
             </div>
           </div>
         </div>
       </details>
       <details class="fold">
-        <summary>Session Status</summary>
+        <summary id="sessionSummary">Session Status</summary>
         <div class="foldBody">
           <div class="infoCard">
             <div id="statusMessage" class="statusMsg"></div>
@@ -790,22 +799,22 @@
         </div>
       </details>
       <details class="fold">
-        <summary>Shortcuts</summary>
+        <summary id="shortcutsSummary">Shortcuts</summary>
         <div class="foldBody">
           <div class="infoCard">
             <div class="shortcutGrid">
-              <div><span class="skKey">Enter</span></div><div class="skDesc">Confirm current instance</div>
-              <div><span class="skKey">S</span></div><div class="skDesc">Save current image</div>
-              <div><span class="skKey">Space / Right</span></div><div class="skDesc">Next image</div>
-              <div><span class="skKey">Left</span></div><div class="skDesc">Previous image</div>
-              <div><span class="skKey">B</span></div><div class="skDesc">Toggle box mode</div>
-              <div><span class="skKey">E</span></div><div class="skDesc">Toggle edit mask mode</div>
-              <div><span class="skKey">Flag button</span></div><div class="skDesc">Toggle flag</div>
-              <div><span class="skKey">Backspace</span></div><div class="skDesc">Undo last instance</div>
-              <div><span class="skKey">U / R</span></div><div class="skDesc">Undo point / Reset current</div>
-              <div><span class="skKey">T</span></div><div class="skDesc">Revert mask to SAM output</div>
-              <div><span class="skKey">[ / ]</span></div><div class="skDesc">Brush radius - / +</div>
-              <div><span class="skKey">Wheel / Shift+Drag</span></div><div class="skDesc">Zoom / Pan view</div>
+              <div><span class="skKey">Enter</span></div><div id="scConfirm" class="skDesc">Confirm current instance</div>
+              <div><span class="skKey">S</span></div><div id="scSave" class="skDesc">Save current image</div>
+              <div><span class="skKey">Space / Right</span></div><div id="scNext" class="skDesc">Next image</div>
+              <div><span class="skKey">Left</span></div><div id="scPrev" class="skDesc">Previous image</div>
+              <div><span class="skKey">B</span></div><div id="scBox" class="skDesc">Toggle box mode</div>
+              <div><span class="skKey">E</span></div><div id="scBrush" class="skDesc">Toggle edit mask mode</div>
+              <div><span class="skKey">Flag button</span></div><div id="scFlag" class="skDesc">Toggle flag</div>
+              <div><span class="skKey">Backspace</span></div><div id="scUndoInst" class="skDesc">Undo last instance</div>
+              <div><span class="skKey">U / R</span></div><div id="scUndoReset" class="skDesc">Undo point / Reset current</div>
+              <div><span class="skKey">T</span></div><div id="scRevert" class="skDesc">Revert mask to SAM output</div>
+              <div><span class="skKey">[ / ]</span></div><div id="scBrushRadius" class="skDesc">Brush radius - / +</div>
+              <div><span class="skKey">Wheel / Shift+Drag</span></div><div id="scZoomPan" class="skDesc">Zoom / Pan view</div>
             </div>
           </div>
         </div>
@@ -859,6 +868,7 @@ const viewContrastValEl = document.getElementById('viewContrastVal');
 const viewSaturateValEl = document.getElementById('viewSaturateVal');
 const loadingOverlay = document.getElementById('loadingOverlay');
 const loadingText = document.getElementById('loadingText');
+const localeSelectEl = document.getElementById('localeSelect');
 let state = null;
 let progress = null;
 let overviewData = [];
@@ -893,6 +903,11 @@ let recordingShortcutId = null;
 
 const SHORTCUT_STORAGE_KEY = 'snapseg.shortcuts.v1';
 const VIEW_ADJUST_STORAGE_KEY = 'snapseg.view_adjust.v1';
+const LOCALE_STORAGE_KEY = 'snapseg.locale.v1';
+const DEFAULT_LOCALE = 'en';
+const SUPPORTED_LOCALES = ['en', 'zh-TW'];
+let currentLocale = DEFAULT_LOCALE;
+let messages = {};
 const shortcutSpecs = [
   { id: 'save', label: 'Save', default: 'S', handler: () => act('save') },
   { id: 'confirm', label: 'Confirm', default: 'Enter', handler: () => act('confirm') },
@@ -925,6 +940,138 @@ function esc(s) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
+}
+
+function t(key, vars = {}) {
+  let template = messages[key];
+  if (template === undefined || template === null || template === '') template = key;
+  return String(template).replace(/\{(\w+)\}/g, (_, k) => (vars[k] !== undefined ? String(vars[k]) : `{${k}}`));
+}
+
+async function loadLocaleMessages(locale) {
+  const normalized = SUPPORTED_LOCALES.includes(locale) ? locale : DEFAULT_LOCALE;
+  let next = {};
+  try {
+    const res = await fetch(`/locales/${encodeURIComponent(normalized)}.json?ts=${Date.now()}`);
+    if (!res.ok) throw new Error(`locale ${normalized} not found`);
+    next = await res.json();
+  } catch {
+    if (normalized !== DEFAULT_LOCALE) return loadLocaleMessages(DEFAULT_LOCALE);
+    next = {};
+  }
+  currentLocale = normalized;
+  messages = next || {};
+  localStorage.setItem(LOCALE_STORAGE_KEY, currentLocale);
+  applyI18n();
+  await drawFrame();
+}
+
+function setText(id, key, vars = {}) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = t(key, vars);
+}
+
+function applyI18n() {
+  document.documentElement.lang = currentLocale === 'zh-TW' ? 'zh-Hant' : 'en';
+  document.title = t('app.doc_title');
+  if (localeSelectEl) localeSelectEl.value = currentLocale;
+
+  setText('settingsTitle', 'settings.title');
+  setText('settingsCloseBtn', 'common.close');
+  setText('settingsLanguageTitle', 'settings.language');
+  setText('resetDefaultsBtn', 'settings.reset_defaults');
+  setText('overviewTitle', 'overview.title');
+  setText('overviewFilterAll', 'overview.filter_all');
+  setText('overviewFilterFlagged', 'overview.filter_flagged');
+  setText('overviewFilterLabeled', 'overview.filter_labeled');
+  setText('overviewFilterUnseen', 'overview.filter_unseen');
+  setText('overviewCloseBtn', 'common.close');
+  setText('imageChipLabel', 'top.image');
+  setText('gotoBtn', 'top.go');
+  setText('confirmLabel', 'top.confirm');
+  setText('saveLabel', 'top.save');
+  setText('appTitle', 'app.title');
+  setText('sourceSummary', 'left.source');
+  setText('sourceDesc', 'left.source_desc');
+  setText('pickFolderBtn', 'left.pick_folder');
+  setText('pickImageBtn', 'left.pick_image');
+  setText('btnLoadSource', 'left.load_source');
+  setText('classesSummary', 'left.classes');
+  setText('classListLabel', 'left.class_list');
+  setText('activeClassLabel', 'left.active_class');
+  setText('classPrevLabel', 'left.class_prev_short');
+  setText('classNextLabel', 'left.class_next_short');
+  setText('settingsSummary', 'left.settings');
+  setText('viewAdjustmentTitle', 'left.view_adjust');
+  setText('brightnessLabel', 'left.brightness');
+  setText('contrastLabel', 'left.contrast');
+  setText('saturationLabel', 'left.saturation');
+  setText('resetViewBtn', 'left.reset_view');
+  setText('brushRadiusLabel', 'left.brush_radius');
+  setText('epsilonLabel', 'left.epsilon');
+  setText('applyEpsilonBtn', 'left.apply_epsilon');
+  setText('progressSummary', 'right.progress');
+  setText('metricVisited', 'right.visited');
+  setText('metricLabeled', 'right.labeled');
+  setText('metricFlagged', 'right.flagged');
+  setText('metricInstances', 'right.instances');
+  setText('confirmedSummary', 'right.confirmed');
+  setText('instStatsTitle', 'right.annotation_stats');
+  setText('sessionSummary', 'right.session');
+  setText('shortcutsSummary', 'right.shortcuts');
+  setText('scConfirm', 'shortcuts.confirm');
+  setText('scSave', 'shortcuts.save');
+  setText('scNext', 'shortcuts.next');
+  setText('scPrev', 'shortcuts.prev');
+  setText('scBox', 'shortcuts.box');
+  setText('scBrush', 'shortcuts.brush');
+  setText('scFlag', 'shortcuts.flag');
+  setText('scUndoInst', 'shortcuts.undo_instance');
+  setText('scUndoReset', 'shortcuts.undo_reset');
+  setText('scRevert', 'shortcuts.revert');
+  setText('scBrushRadius', 'shortcuts.brush_radius');
+  setText('scZoomPan', 'shortcuts.zoom_pan');
+
+  sourceEl.placeholder = t('left.pick_source_placeholder');
+  classInputEl.placeholder = t('left.class_input_placeholder');
+  gotoEl.placeholder = t('top.goto_index');
+  modePointBtn.textContent = t('mode.point');
+  modeBoxBtn.textContent = t('mode.box');
+  modeBrushBtn.textContent = t('mode.brush');
+
+  btnPrevEl.title = t('tooltip.prev');
+  btnNextEl.title = t('tooltip.next');
+  btnUndoPointEl.title = t('tooltip.undo_point');
+  btnUndoInstEl.title = t('tooltip.undo_instance');
+  document.getElementById('btnResetPrompt').title = t('tooltip.reset_prompt');
+  document.getElementById('btnToggleFlag').title = t('tooltip.flag');
+  btnConfirmEl.title = t('tooltip.confirm');
+  btnSaveEl.title = t('tooltip.save');
+  document.getElementById('btnSettings').title = t('tooltip.settings');
+  document.querySelector('[onclick="zoomIn()"]').title = t('tooltip.zoom_in');
+  document.querySelector('[onclick="zoomOut()"]').title = t('tooltip.zoom_out');
+  document.querySelector('[onclick="zoomReset()"]').title = t('tooltip.zoom_reset');
+  document.querySelector('[onclick="openOverview()"]').title = t('tooltip.overview');
+  document.querySelector('[onclick="gotoImage()"]').title = t('tooltip.goto');
+  document.querySelector('[onclick="act(\'class_prev\')"]').title = t('tooltip.class_prev');
+  document.querySelector('[onclick="act(\'class_next\')"]').title = t('tooltip.class_next');
+  modePointBtn.title = t('tooltip.mode_point');
+  modeBoxBtn.title = t('tooltip.mode_box');
+  modeBrushBtn.title = t('tooltip.mode_brush');
+  renderShortcutTable();
+  if (!recordingShortcutId && settingsHintEl) settingsHintEl.textContent = t('settings.hint_customize');
+  if (epsText && state) {
+    epsText.textContent = t('epsilon.current', { value: Number(state.polygon_epsilon_ratio || 0.005).toFixed(4) });
+  }
+  if (pSummaryEl && progress) {
+    const visitRate = Number(progress.visit_rate || 0);
+    pSummaryEl.textContent = t('progress.visit_rate', { rate: (visitRate * 100).toFixed(1) });
+  }
+}
+
+function changeLocale(locale) {
+  loadLocaleMessages(locale);
 }
 
 function setStatusMessage(msg) {
@@ -1028,15 +1175,16 @@ function getShortcutToActionMap() {
 function renderShortcutTable() {
   if (!shortcutTableEl) return;
   const rows = [
-    '<div class="shortcutHead">Action</div><div class="shortcutHead">Key</div><div class="shortcutHead">Bind</div>'
+    `<div class="shortcutHead">${esc(t('settings.action'))}</div><div class="shortcutHead">${esc(t('settings.key'))}</div><div class="shortcutHead">${esc(t('settings.bind'))}</div>`
   ];
   for (const spec of shortcutSpecs) {
+    const label = t(`shortcut_label.${spec.id}`) === `shortcut_label.${spec.id}` ? spec.label : t(`shortcut_label.${spec.id}`);
     const key = userShortcuts[spec.id] || '-';
     const rec = recordingShortcutId === spec.id;
-    rows.push(`<div class="shortcutCell">${esc(spec.label)}</div>`);
+    rows.push(`<div class="shortcutCell">${esc(label)}</div>`);
     rows.push(`<div class="shortcutCell shortcutKey">${esc(key)}</div>`);
     rows.push(
-      `<button class="shortcutActionBtn${rec ? ' recording' : ''}" onclick="startShortcutRecord('${spec.id}')">${rec ? 'Press Key...' : 'Set'}</button>`
+      `<button class="shortcutActionBtn${rec ? ' recording' : ''}" onclick="startShortcutRecord('${spec.id}')">${rec ? esc(t('settings.press_key')) : esc(t('settings.set'))}</button>`
     );
   }
   shortcutTableEl.innerHTML = rows.join('');
@@ -1044,7 +1192,7 @@ function renderShortcutTable() {
 
 function openSettings() {
   recordingShortcutId = null;
-  if (settingsHintEl) settingsHintEl.textContent = 'Customize shortcuts. Click "Set" then press a key combination.';
+  if (settingsHintEl) settingsHintEl.textContent = t('settings.hint_customize');
   syncViewAdjustUI();
   renderShortcutTable();
   settingsOverlayEl.style.display = 'flex';
@@ -1057,7 +1205,7 @@ function closeSettings() {
 
 function startShortcutRecord(actionId) {
   recordingShortcutId = actionId;
-  if (settingsHintEl) settingsHintEl.textContent = 'Press a shortcut key now. Press Escape to cancel.';
+  if (settingsHintEl) settingsHintEl.textContent = t('settings.hint_press_key');
   renderShortcutTable();
 }
 
@@ -1065,7 +1213,7 @@ function resetShortcuts() {
   userShortcuts = { ...defaultShortcuts };
   saveShortcuts();
   recordingShortcutId = null;
-  if (settingsHintEl) settingsHintEl.textContent = 'Shortcuts reset to defaults.';
+  if (settingsHintEl) settingsHintEl.textContent = t('settings.hint_reset_done');
   renderShortcutTable();
 }
 
@@ -1120,31 +1268,31 @@ function updateModelUI() {
   const elapsedMs = Number(state.model_loading_elapsed_ms || 0);
   if (status === 'ready') {
     btnLoadSourceEl.disabled = false;
-    btnLoadSourceEl.textContent = 'Load Source';
+    btnLoadSourceEl.textContent = t('left.load_source');
     return;
   }
   if (status === 'error') {
     btnLoadSourceEl.disabled = true;
-    btnLoadSourceEl.textContent = 'Model Error';
-    if (state.model_error) setStatusMessage(`Model failed: ${state.model_error}`);
+    btnLoadSourceEl.textContent = t('state.model_error');
+    if (state.model_error) setStatusMessage(t('error.model_failed', { err: state.model_error }));
     return;
   }
   const sec = elapsedMs > 0 ? ` (${Math.round(elapsedMs / 1000)}s)` : '';
   if (elapsedMs > 60000) {
-    btnLoadSourceEl.textContent = `Model stalled${sec}`;
-    setStatusMessage('Model loading is taking longer than expected. Check network/cache.');
+    btnLoadSourceEl.textContent = t('state.model_stalled', { sec });
+    setStatusMessage(t('error.model_slow'));
   } else {
-    btnLoadSourceEl.textContent = `Model loading${sec}...`;
+    btnLoadSourceEl.textContent = t('state.model_loading', { sec });
   }
   btnLoadSourceEl.disabled = true;
 }
 
 function statusPills(item) {
   const pills = [];
-  if (item.visited) pills.push('<span class="statusPill visited">Visited</span>');
-  if (item.labeled) pills.push('<span class="statusPill labeled">Labeled</span>');
-  if (item.flagged) pills.push('<span class="statusPill flagged">Flagged</span>');
-  if (pills.length === 0) pills.push('<span class="statusPill">Unseen</span>');
+  if (item.visited) pills.push(`<span class="statusPill visited">${esc(t('right.visited'))}</span>`);
+  if (item.labeled) pills.push(`<span class="statusPill labeled">${esc(t('right.labeled'))}</span>`);
+  if (item.flagged) pills.push(`<span class="statusPill flagged">${esc(t('right.flagged'))}</span>`);
+  if (pills.length === 0) pills.push(`<span class="statusPill">${esc(t('overview.filter_unseen'))}</span>`);
   return pills.join('');
 }
 
@@ -1164,12 +1312,12 @@ function renderOverviewGrid() {
       `<div class="thumbCard${currentClass}">` +
       `<div class="thumbBox"><img loading="lazy" src="/api/thumb?index=${idx}&size=260" alt="${name}"></div>` +
       `<div class="thumbName" title="${name}">#${idx} ${name}</div>` +
-      `<div class="thumbMeta">${statusPills(it)} inst: ${Number(it.instances || 0)}</div>` +
-      `<button class="btn flagJump" onclick="jumpToImage(${idx}); closeOverview();">Jump</button>` +
+      `<div class="thumbMeta">${statusPills(it)} ${t('overview.inst')}: ${Number(it.instances || 0)}</div>` +
+      `<button class="btn flagJump" onclick="jumpToImage(${idx}); closeOverview();">${t('overview.jump')}</button>` +
       `</div>`
     );
   }).join('');
-  overviewGridEl.innerHTML = rows || '<div class="status">No images in this filter.</div>';
+  overviewGridEl.innerHTML = rows || `<div class="status">${esc(t('overview.no_images'))}</div>`;
 }
 
 async function loadOverview() {
@@ -1190,7 +1338,7 @@ function setOverviewFilter(name) {
 
 async function openOverview() {
   if (!state || !state.ready) return;
-  showLoading('Loading overview...');
+  showLoading(t('loading.overview'));
   await loadOverview();
   hideLoading();
   overviewOverlayEl.style.display = 'block';
@@ -1201,7 +1349,7 @@ function closeOverview() {
 }
 
 function showLoading(msg) {
-  loadingText.textContent = msg || 'Loading...';
+  loadingText.textContent = msg || t('loading.default');
   loadingOverlay.style.display = 'flex';
 }
 
@@ -1266,7 +1414,7 @@ function updateModeButtons() {
 
 function updateBrushButtons() {
   if (!brushTypeBtn) return;
-  brushTypeBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M7 14l5-9 5 9"/></svg><span class="lbl">Brush: ${brushErase ? 'Erase' : 'Add'}</span>`;
+  brushTypeBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M7 14l5-9 5 9"/></svg><span class="lbl">${t('brush.label')}: ${brushErase ? t('brush.erase') : t('brush.add')}</span>`;
   brushTypeBtn.style.borderColor = brushErase ? '#a16a2e' : '#2ea162';
 }
 
@@ -1333,12 +1481,12 @@ function renderCanvas() {
     ctx.fillRect(0, 0, cv.width, cv.height);
     ctx.fillStyle = '#dbe9f7';
     ctx.font = '700 34px "Segoe UI","Helvetica Neue",Arial,sans-serif';
-    ctx.fillText('SnapSeg Interactive Annotation', 72, 180);
+    ctx.fillText(t('canvas.welcome_title'), 72, 180);
     ctx.font = '500 20px "Segoe UI","Helvetica Neue",Arial,sans-serif';
     ctx.fillStyle = '#9fb2c8';
-    ctx.fillText('1. Pick a source folder or image on the left panel', 72, 240);
-    ctx.fillText('2. Set classes (comma-separated), then click "Load Source"', 72, 280);
-    ctx.fillText('3. Click on defects/objects to start interactive annotation', 72, 320);
+    ctx.fillText(t('canvas.welcome_step1'), 72, 240);
+    ctx.fillText(t('canvas.welcome_step2'), 72, 280);
+    ctx.fillText(t('canvas.welcome_step3'), 72, 320);
     ctx.strokeStyle = '#35506a';
     ctx.lineWidth = 2;
     ctx.strokeRect(60, 120, 760, 260);
@@ -1389,8 +1537,8 @@ function renderCanvas() {
 
 function renderInstanceList() {
   if (!state || !state.ready || !state.instances_detail || state.instances_detail.length === 0) {
-    instanceListEl.innerHTML = 'No confirmed instances yet.';
-    if (instanceStatsEl) instanceStatsEl.innerHTML = '<div class="status">No stats yet.</div>';
+    instanceListEl.innerHTML = t('instance.none');
+    if (instanceStatsEl) instanceStatsEl.innerHTML = `<div class="status">${esc(t('instance.no_stats'))}</div>`;
     return;
   }
   const rows = state.instances_detail.map((it) => {
@@ -1406,8 +1554,8 @@ function renderInstanceList() {
     }
     return (
       `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0;">` +
-      `<span style="display:flex;align-items:center;gap:8px;"><span style="width:10px;height:10px;border-radius:50%;background:${dot};display:inline-block;flex:none;"></span>#${idx} ${label} (score ${score})</span>` +
-      `<button class="btn warn" style="width:84px;margin:0;padding:6px 8px;" onclick="deleteInstance(${Number(it.index)})">Delete</button>` +
+      `<span style="display:flex;align-items:center;gap:8px;"><span style="width:10px;height:10px;border-radius:50%;background:${dot};display:inline-block;flex:none;"></span>#${idx} ${label} (${t('instance.score')} ${score})</span>` +
+      `<button class="btn warn" style="width:84px;margin:0;padding:6px 8px;" onclick="deleteInstance(${Number(it.index)})">${t('instance.delete')}</button>` +
       `</div>`
     );
   });
@@ -1426,7 +1574,7 @@ function fmtFloat(n, d = 2) {
 function renderInstanceStats() {
   if (!instanceStatsEl) return;
   if (!state || !state.ready || !Array.isArray(state.instances_detail) || state.instances_detail.length === 0) {
-    instanceStatsEl.innerHTML = '<div class="status">No stats yet.</div>';
+    instanceStatsEl.innerHTML = `<div class="status">${esc(t('instance.no_stats'))}</div>`;
     return;
   }
   const byClass = {};
@@ -1457,7 +1605,7 @@ function renderInstanceStats() {
       rangeWarn,
     };
   });
-  const head = '<table class="instStatsTable"><thead><tr><th>Class</th><th>Count</th><th>Avg score</th><th>Avg area</th><th>Area range</th></tr></thead><tbody>';
+  const head = `<table class="instStatsTable"><thead><tr><th>${esc(t('stats.class'))}</th><th>${esc(t('stats.count'))}</th><th>${esc(t('stats.avg_score'))}</th><th>${esc(t('stats.avg_area'))}</th><th>${esc(t('stats.area_range'))}</th></tr></thead><tbody>`;
   const body = rows.map((r) => {
     const scoreCls = r.scoreWarn ? 'instStatsWarn' : '';
     const rangeCls = r.rangeWarn ? 'instStatsWarn' : '';
@@ -1481,7 +1629,7 @@ function renderClassTags() {
   }
   const rows = state.class_list.map((name, i) => {
     const active = Number(i) === Number(state.class_idx) ? ' active' : '';
-    return `<button class="classTag${active}" onclick="setClass(${i})" title="Set class ${i + 1}: ${esc(name)}">${esc(name)}</button>`;
+    return `<button class="classTag${active}" onclick="setClass(${i})" title="${esc(t('class.set_class', { index: i + 1, name }))}">${esc(name)}</button>`;
   });
   classTagsEl.innerHTML = rows.join('');
 }
@@ -1500,26 +1648,26 @@ async function getProgress() {
   pLabeledEl.textContent = `${labeled}`;
   pFlaggedEl.textContent = `${flagged}`;
   pInstancesEl.textContent = `${totalInstances}`;
-  pSummaryEl.textContent = `Visit rate: ${(visitRate * 100).toFixed(1)}%`;
+  pSummaryEl.textContent = t('progress.visit_rate', { rate: (visitRate * 100).toFixed(1) });
   pVisitFillEl.style.width = `${Math.max(0, Math.min(100, visitRate * 100))}%`;
 
   const items = Array.isArray(progress.flagged_items) ? progress.flagged_items : [];
   if (items.length === 0) {
-    pFlagListEl.innerHTML = 'Flagged list: none';
+    pFlagListEl.innerHTML = t('progress.flagged_none');
   } else {
     const rows = items.map((it) => {
       const idx = Number(it.index || 0);
       const name = esc(it.name || '-');
       const current = idx === Number(progress.current_index || 0);
-      const tag = current ? ' (current)' : '';
+      const tag = current ? ` ${t('progress.current_tag')}` : '';
       return (
         `<div class="flagRow">` +
         `<span class="flagName" title="#${idx} ${name}${tag}">#${idx} ${name}${tag}</span>` +
-        `<button class="btn flagJump" onclick="jumpToImage(${idx})">Jump</button>` +
+        `<button class="btn flagJump" onclick="jumpToImage(${idx})">${t('overview.jump')}</button>` +
         `</div>`
       );
     }).join('');
-    pFlagListEl.innerHTML = `Flagged list:${rows}`;
+    pFlagListEl.innerHTML = `${t('progress.flagged_list')}:${rows}`;
   }
 }
 
@@ -1530,33 +1678,35 @@ async function getState() {
   updateTopActionAvailability();
   renderClassTags();
   const activeClass = (state.class_list && state.class_list.length > 0) ? state.class_list[state.class_idx] : '-';
-  const promptMode = boxMode ? 'Box' : (editMode ? 'Brush' : 'Point');
+  const promptMode = boxMode ? t('mode.box') : (editMode ? t('mode.brush') : t('mode.point'));
+  const modelSource = state.model_source || t('state.unknown');
+  const modelStatus = state.model_status || t('state.idle');
   const rows = [
-    { k: 'Image', v: `${state.image_index}/${state.image_total} (${state.image_name || '-'})` },
-    { k: 'Class', v: `${activeClass}` },
-    { k: 'Instances', v: `${state.instances}` },
-    { k: 'Flagged', v: `${state.flagged}` },
-    { k: 'Prompt Mode', v: `${promptMode} (Box Prompt: ${state.has_box_prompt})` },
-    { k: 'Points', v: `${state.points}` },
-    { k: 'Score', v: `${state.score}` },
-    { k: 'Latency', v: `${state.latency_ms} ms` },
-    { k: 'Backend', v: `${state.backend_requested} -> ${state.backend}` },
-    { k: 'Model', v: `${state.model_id}` },
-    { k: 'Model Source', v: `${state.model_source || 'unknown'}` },
-    { k: 'Model Status', v: `${state.model_status || 'idle'}` },
-    { k: 'Save Queue', v: `${state.save_queue}` },
-    { k: 'Autosave Queue', v: `${state.autosave_queue}` },
-    { k: 'VRAM Free', v: `${state.prefetch_free_gb} GB` },
-    { k: 'Prefetch Guard', v: `${state.prefetch_paused_low_vram}` },
-    { k: 'Autosave File', v: `${state.autosave}` },
-    { k: 'Zoom', v: `${viewScale.toFixed(2)}x` },
+    { k: t('state.image'), v: `${state.image_index}/${state.image_total} (${state.image_name || '-'})` },
+    { k: t('state.class'), v: `${activeClass}` },
+    { k: t('state.instances'), v: `${state.instances}` },
+    { k: t('state.flagged'), v: `${state.flagged}` },
+    { k: t('state.prompt_mode'), v: `${promptMode} (${t('state.box_prompt')}: ${state.has_box_prompt})` },
+    { k: t('state.points'), v: `${state.points}` },
+    { k: t('state.score'), v: `${state.score}` },
+    { k: t('state.latency'), v: `${state.latency_ms} ms` },
+    { k: t('state.backend'), v: `${state.backend_requested} -> ${state.backend}` },
+    { k: t('state.model'), v: `${state.model_id}` },
+    { k: t('state.model_source'), v: `${modelSource}` },
+    { k: t('state.model_status'), v: `${modelStatus}` },
+    { k: t('state.save_queue'), v: `${state.save_queue}` },
+    { k: t('state.autosave_queue'), v: `${state.autosave_queue}` },
+    { k: t('state.vram_free'), v: `${state.prefetch_free_gb} GB` },
+    { k: t('state.prefetch_guard'), v: `${state.prefetch_paused_low_vram}` },
+    { k: t('state.autosave_file'), v: `${state.autosave}` },
+    { k: t('state.zoom'), v: `${viewScale.toFixed(2)}x` },
   ];
   setStatusFieldRows(rows);
   setStatusMessage(state.embedding_error || state.backend_warning || '');
   epsEl.value = Number(state.polygon_epsilon_ratio || 0.005);
-  epsText.textContent = `Current epsilon: ${Number(state.polygon_epsilon_ratio || 0.005).toFixed(4)}`;
+  epsText.textContent = t('epsilon.current', { value: Number(state.polygon_epsilon_ratio || 0.005).toFixed(4) });
   gotoEl.max = String(state.image_total);
-  gotoEl.placeholder = `1 ~ ${state.image_total}`;
+  gotoEl.placeholder = t('top.goto_range', { total: state.image_total });
   if (state.source_path) sourceEl.value = state.source_path;
   const editingClassInput = (document.activeElement === classInputEl);
   if (!editingClassInput && state.class_list && state.class_list.length > 0) {
@@ -1758,28 +1908,28 @@ async function applyConfig() {
   const source_path = sourceEl.value.trim();
   const classes = classInputEl.value.trim();
   if (!source_path) {
-    setStatusMessage("Please pick a folder/image path first.");
+    setStatusMessage(t('error.pick_source_first'));
     return;
   }
   if (state && state.model_status !== 'ready' && state.model_status !== 'error') {
     const sec = Number(state.model_loading_elapsed_ms || 0);
     const tip = sec > 0 ? ` (${Math.round(sec / 1000)}s)` : '';
-    setStatusMessage(`Model is still loading${tip}. Please wait.`);
+    setStatusMessage(t('error.model_loading', { tip }));
     return;
   }
   if (state && state.model_status === 'error') {
-    setStatusMessage(`Model failed: ${state.model_error || 'unknown error'}`);
+    setStatusMessage(t('error.model_failed', { err: state.model_error || t('state.unknown') }));
     return;
   }
-  showLoading('Loading source...');
+  showLoading(t('loading.source'));
   const res = await fetch('/api/config', {
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({source_path, classes})
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({detail:"unknown error"}));
-    setStatusMessage(`Error: ${err.detail || 'unknown error'}`);
+    const err = await res.json().catch(() => ({detail:t('state.unknown')}));
+    setStatusMessage(t('error.generic', { err: err.detail || t('state.unknown') }));
     hideLoading();
     return;
   }
@@ -1939,7 +2089,7 @@ window.addEventListener('keydown', async (e) => {
     e.stopPropagation();
     if (e.key === 'Escape') {
       recordingShortcutId = null;
-      if (settingsHintEl) settingsHintEl.textContent = 'Shortcut recording canceled.';
+      if (settingsHintEl) settingsHintEl.textContent = t('settings.hint_record_cancel');
       renderShortcutTable();
       return;
     }
@@ -1947,12 +2097,18 @@ window.addEventListener('keydown', async (e) => {
     if (!shortcut) return;
     const owner = shortcutSpecs.find((s) => userShortcuts[s.id] === shortcut && s.id !== recordingShortcutId);
     if (owner) {
-      if (settingsHintEl) settingsHintEl.textContent = `Conflict: "${shortcut}" is already used by ${owner.label}.`;
+      const ownerLabel = t(`shortcut_label.${owner.id}`) === `shortcut_label.${owner.id}` ? owner.label : t(`shortcut_label.${owner.id}`);
+      if (settingsHintEl) settingsHintEl.textContent = t('settings.hint_conflict', { shortcut, owner: ownerLabel });
       return;
     }
     userShortcuts[recordingShortcutId] = shortcut;
     saveShortcuts();
-    if (settingsHintEl) settingsHintEl.textContent = `Saved: ${shortcutSpecs.find((s) => s.id === recordingShortcutId)?.label || 'Shortcut'} = ${shortcut}`;
+    const savedSpec = shortcutSpecs.find((s) => s.id === recordingShortcutId);
+    const savedLabel = savedSpec ? (t(`shortcut_label.${savedSpec.id}`) === `shortcut_label.${savedSpec.id}` ? savedSpec.label : t(`shortcut_label.${savedSpec.id}`)) : t('settings.shortcut');
+    if (settingsHintEl) settingsHintEl.textContent = t('settings.hint_saved', {
+      label: savedLabel,
+      shortcut,
+    });
     recordingShortcutId = null;
     renderShortcutTable();
     return;
@@ -2013,7 +2169,11 @@ updateBrushButtons();
 loadViewAdjust();
 syncViewAdjustUI();
 loadShortcuts();
-drawFrame();
+
+(async () => {
+  const savedLocale = localStorage.getItem(LOCALE_STORAGE_KEY) || DEFAULT_LOCALE;
+  await loadLocaleMessages(savedLocale);
+})();
 </script>
 </body>
 </html>
